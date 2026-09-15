@@ -27,7 +27,7 @@ const CFG = {
 
   // ---- bola ----
   BALL_DRAG: 0.7, BALL_DECEL: 35, BALL_BOUNCE: 0.72, BALL_MAX: 1300,
-  SPIN_DECAY: 1.1, SPIN_MAX: 2.4,
+  SPIN_DECAY: 1.2, SPIN_MAX: 1.8,
   CARRY_K: 14, CARRY_MAX_REL: 260, CARRY_LERP: 18, CARRY_DIST: 3, CARRY_LOSE: 34,   // condução física da bola
   PASS_THROUGH: 0.25,               // bola atravessa o corpo de quem acabou de chutar
   POST_R: 6,
@@ -49,7 +49,7 @@ const CFG = {
   SHOT_MIN_FIRST: 520,              // chute de primeira começa mais rápido (mesmo máximo)
   SHOT_WINDUP: 0.28,                // animação mínima do chute dominado: mesmo soltando cedo, a bola só sai depois disso
   PASS_WINDUP: 0.05,                // passe é quase instantâneo
-  SPIN_GAIN_PX: 0.014, SPIN_POWER_FADE: 0.45,   // efeito: rad/s por pixel de arrasto do mouse com a mira travada; chute forte perde menos efeito
+  SPIN_GAIN_PX: 0.010, SPIN_POWER_FADE: 0.45,   // efeito: rad/s por pixel de arrasto do mouse com a mira travada; chute forte perde menos efeito
   // ---- passe ----
   PASS_CHARGE: 0.4, PASS_MIN: 430, PASS_MAX: 700, PASS_ASSIST_DEG: 9,
   // ---- push ball ----
