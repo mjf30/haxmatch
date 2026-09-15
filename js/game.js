@@ -703,7 +703,7 @@ class Game {
 
   // ---------- física da bola ----------
   // Integra um estado {pos, vel, spin} livre (usado pela bola e pelo preview).
-  static integrateFree(b, dt) {
+  static integrateFree(b, dt, walls = true) {
     if (b.spin !== 0) {
       const s = V.len(b.vel);
       b.vel = V.rot(b.vel, b.spin * dt * Math.min(1, s / 500));
@@ -717,7 +717,7 @@ class Game {
       b.vel = s2 > 0 ? V.mul(b.vel, s2 / s) : { x: 0, y: 0 };
     }
     b.pos = V.add(b.pos, V.mul(b.vel, dt));
-    Game.wallsFree(b);
+    if (walls) Game.wallsFree(b);
   }
 
   static wallsFree(b) {
@@ -799,11 +799,20 @@ class Game {
     b.rot += V.len(b.vel) * dt / b.r;
   }
 
-  // preview de trajetória (para o HUD)
+  // preview de trajetória (para o HUD): sem reflexão nas paredes, para na 1ª parede
   simulatePath(pos, vel, spin, steps, dt) {
     const s = { pos: { x: pos.x, y: pos.y }, vel: { x: vel.x, y: vel.y }, spin, r: this.ball.r };
     const pts = [];
-    for (let i = 0; i < steps; i++) { Game.integrateFree(s, dt); pts.push({ x: s.pos.x, y: s.pos.y }); if (V.len(s.vel) < 20) break; }
+    const W2 = CFG.FIELD_W / 2, H2 = CFG.FIELD_H / 2;
+    for (let i = 0; i < steps; i++) {
+      Game.integrateFree(s, dt, false);
+      const mouth = Math.abs(s.pos.y) < CFG.GOAL_W / 2 - s.r;
+      const outX = Math.abs(s.pos.x) + s.r > W2 && (!mouth || Math.abs(s.pos.x) + s.r > W2 + CFG.GOAL_D);
+      const outY = Math.abs(s.pos.y) + s.r > H2;
+      if (outX || outY) break;
+      pts.push({ x: s.pos.x, y: s.pos.y });
+      if (V.len(s.vel) < 20) break;
+    }
     return pts;
   }
 
