@@ -98,8 +98,9 @@ nos pés empurra a bola automaticamente enquanto a arrancada dura.
 - Chute também serve como passe longo.
 - Fake shot: cancelar a carga vira finta.
 
-**2D:** direção fixada no momento em que LMB é pressionado; o deslocamento angular
-do mouse durante a carga vira spin lateral; força cresce com o tempo segurado numa
+**2D:** ao apertar LMB a mira trava no ponto do clique (mira virtual, com pointer
+lock quando o navegador permite) e a direção fica fixada; o arrasto lateral do
+mouse enquanto segura vira spin; força cresce com o tempo segurado numa
 curva convexa (pouco carregado sai lento, carregado sai forte); de primeira começa
 mais rápido com o mesmo máximo; spin efetivo diminui com a força. Ao atingir a carga máxima (0,62 s) o chute sai
 sozinho; o passe idem em 0,4 s. Não dá para segurar indefinidamente. O chute

@@ -409,13 +409,40 @@ class Renderer {
       ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(w / 2 - 260, 60, 520, 22);
       ctx.fillStyle = '#ffe66d'; ctx.fillText(txt, w / 2, 64);
     }
+    // mira virtual (o cursor do sistema fica escondido no jogo)
+    if (this.cursor && !this.showScoreboard) {
+      const c = this.cursor;
+      const dir0 = human && ((human.charge && human.charge.kind === 'shot' && human.charge.dir0) || (human.queued && human.queued.kind === 'shot' && human.queued.dir0));
+      const spin = human ? ((human.charge && human.charge.kind === 'shot') ? human.charge.spin : (human.queued && human.queued.kind === 'shot') ? human.queued.spin : 0) : 0;
+      ctx.lineWidth = 1.5;
+      if (this.cursorFrozen && dir0) {
+        // mira travada: anel + seta lateral proporcional ao efeito
+        ctx.strokeStyle = 'rgba(255,200,80,0.95)';
+        ctx.beginPath(); ctx.arc(c.x, c.y, 9, 0, Math.PI * 2); ctx.stroke();
+        ctx.beginPath(); ctx.arc(c.x, c.y, 2, 0, Math.PI * 2); ctx.fillStyle = 'rgba(255,200,80,0.95)'; ctx.fill();
+        const k = spin / CFG.SPIN_MAX;
+        if (Math.abs(k) > 0.03) {
+          const perp = V.perp(dir0);
+          const len = 14 + 40 * Math.abs(k), sgn = Math.sign(k);
+          const ex = c.x + perp.x * len * sgn, ey = c.y + perp.y * len * sgn;
+          ctx.strokeStyle = 'rgba(255,230,120,0.95)'; ctx.lineWidth = 3;
+          ctx.beginPath(); ctx.moveTo(c.x + perp.x * 11 * sgn, c.y + perp.y * 11 * sgn); ctx.lineTo(ex, ey); ctx.stroke();
+          ctx.beginPath(); ctx.arc(ex, ey, 3.5, 0, Math.PI * 2); ctx.fillStyle = 'rgba(255,230,120,0.95)'; ctx.fill();
+        }
+      } else {
+        ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+        ctx.beginPath(); ctx.moveTo(c.x - 10, c.y); ctx.lineTo(c.x - 3, c.y); ctx.moveTo(c.x + 3, c.y); ctx.lineTo(c.x + 10, c.y);
+        ctx.moveTo(c.x, c.y - 10); ctx.lineTo(c.x, c.y - 3); ctx.moveTo(c.x, c.y + 3); ctx.lineTo(c.x, c.y + 10); ctx.stroke();
+        ctx.beginPath(); ctx.arc(c.x, c.y, 1.5, 0, Math.PI * 2); ctx.fillStyle = '#fff'; ctx.fill();
+      }
+    }
     // placar detalhado (Tab)
     if (this.showScoreboard) this.drawScoreboard(game, human);
     // ajuda
     if (this.showHelp) {
       const lines = [
         'WASD mover · mouse mira · Shift correr (2x = arrancada)',
-        'LMB chute (segurar = força; mover o mouse = efeito) · RMB passe',
+        'LMB chute (segurar = força; a mira trava e arrastar o mouse = efeito) · RMB passe',
         'Espaço: push ball (com bola) / drible (Ctrl+bola; 2x seguidas = roleta, com lag) / dash (Ctrl sem bola) / mergulho GK',
         'E tackle · Shift+E carrinho · Ctrl (ou C) postura · F arremesso do goleiro · botão do meio pede a bola',
         'Losango na bola = alvo: LMB/RMB/Espaço travam a ação (verde) e ela sai no toque; vermelho = outro tem prioridade',

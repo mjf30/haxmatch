@@ -29,8 +29,8 @@ function makePlayer(id, team, idx, home, name) {
     fallen: 0,               // caído (carrinho)
     getup: 0,                // levantando (após carrinho/mergulho)
     cd: { tackle: 0, slide: 0, dash: 0, dribble: 0, dive: 0, grab: 0, gloves: 0, through: 0 },
-    charge: null,            // {kind:'shot'|'pass', t, dir0, lastAngle, spin}
-    queued: null,            // ação de primeira agendada na zona de ação: {kind:'shot'|'pass'|'push', t, charging, dir0, lastAngle, spin}
+    charge: null,            // {kind:'shot'|'pass', t, dir0, spin}
+    queued: null,            // ação de primeira agendada na zona de ação: {kind:'shot'|'pass'|'push', t, charging, dir0, spin}
     armed: { shoot: false, pass: false },   // botão segurado e ainda não consumido (pré-carga de chute/passe)
     held: false, holdT: 0,   // goleiro com a bola nas mãos
     pushFlash: 0, callT: 0, fakeT: 0,
@@ -226,9 +226,10 @@ class Game {
     if (!hasBall && !held) { p.dribbleLag = 0; if (p.dribbleN === 1 && !p.action) { p.dribbleN = 0; p.dribbleChainT = 0; } }
     if (inp.call && !prev.call) { p.callT = 1.5; this.events.push({ type: 'call', p }); }
 
-    // mira e direção de movimento
+    // mira e direção de movimento (com o chute segurado a mira fica travada)
+    const aimLocked = (p.charge && p.charge.kind === 'shot') || (p.queued && p.queued.kind === 'shot');
     const aimV = V.sub(inp.aim, p.pos);
-    if (V.len(aimV) > 2) p.facing = V.norm(aimV);
+    if (V.len(aimV) > 2 && !aimLocked) p.facing = V.norm(aimV);
     const ml = Math.hypot(inp.mx, inp.my);
     p.moving = ml > 0.1;
     if (p.moving) p.moveDir = V.norm({ x: inp.mx, y: inp.my });
@@ -288,6 +289,13 @@ class Game {
 
   lungeDir(p) { return p.moving ? p.moveDir : p.facing; }
 
+  // efeito a partir do arrasto do mouse: componente lateral à direção do chute
+  dragSpin(inp, dir0) {
+    const d = inp.drag;
+    if (!d || (!d.x && !d.y)) return 0;
+    return V.dot({ x: d.x, y: d.y }, V.perp(dir0)) * CFG.SPIN_GAIN_PX;
+  }
+
   kickDir(p) {
     const b = this.ball;
     const d = V.sub(p.input.aim, b.pos);
@@ -318,9 +326,7 @@ class Game {
         if (q.charging) {
           q.t += dt;
           if (q.kind === 'shot') {
-            const a = V.angle(p.facing);
-            q.spin = V.clamp(q.spin + V.angleDiff(q.lastAngle, a) * CFG.SPIN_GAIN, -CFG.SPIN_MAX, CFG.SPIN_MAX);
-            q.lastAngle = a;
+            q.spin = V.clamp(q.spin + this.dragSpin(inp, q.dir0), -CFG.SPIN_MAX, CFG.SPIN_MAX);
             if (released('shoot')) q.charging = false;
           } else if (q.kind === 'pass' && released('pass')) q.charging = false;
         }
@@ -329,7 +335,7 @@ class Game {
       }
     }
     if (!canKick && inZone) {
-      if (p.armed.shoot) { p.armed.shoot = false; p.queued = { kind: 'shot', t: 0, charging: true, dir0: this.kickDir(p), lastAngle: V.angle(p.facing), spin: 0 }; return; }
+      if (p.armed.shoot) { p.armed.shoot = false; p.queued = { kind: 'shot', t: 0, charging: true, dir0: this.kickDir(p), spin: 0 }; return; }
       if (p.armed.pass) { p.armed.pass = false; p.queued = { kind: 'pass', t: 0, charging: true }; return; }
       if (pressed('special')) { p.queued = { kind: 'push', t: 0, charging: false }; return; }   // push é toque, não segura
     }
@@ -340,10 +346,8 @@ class Game {
       c.t += dt;
       if (!canKick) { p.charge = null; return; }
       if (c.kind === 'shot') {
-        // efeito: deslocamento angular do mouse durante a carga
-        const a = V.angle(p.facing);
-        c.spin = V.clamp(c.spin + V.angleDiff(c.lastAngle, a) * CFG.SPIN_GAIN, -CFG.SPIN_MAX, CFG.SPIN_MAX);
-        c.lastAngle = a;
+        // efeito: arrasto do mouse com a mira travada (lateral à direção do chute)
+        c.spin = V.clamp(c.spin + this.dragSpin(inp, c.dir0), -CFG.SPIN_MAX, CFG.SPIN_MAX);
         // soltar fixa a força; a bola só sai após a animação mínima (windup).
         // Carga cheia: sai sozinho (não dá para segurar indefinidamente).
         if (released('shoot') && c.releasedT === undefined) c.releasedT = c.t;
@@ -361,7 +365,7 @@ class Game {
     if (canKick) {
       if (pressed('shoot')) {
         p.armed.shoot = false; p.dribbleLag = 0;
-        p.charge = { kind: 'shot', t: 0, dir0: this.kickDir(p), lastAngle: V.angle(p.facing), spin: 0 };
+        p.charge = { kind: 'shot', t: 0, dir0: this.kickDir(p), spin: 0 };
         return;
       }
       if (pressed('pass')) { p.armed.pass = false; p.dribbleLag = 0; p.charge = { kind: 'pass', t: 0 }; return; }

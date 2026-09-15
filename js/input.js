@@ -13,6 +13,7 @@ function emptyInput() {
     tackle: false,                // E (tackle / carrinho se correndo)
     throwBall: false,             // F (arremesso do goleiro)
     call: false,                  // botão do meio (pedir bola)
+    drag: { x: 0, y: 0 },         // movimento do mouse (px) com a mira travada: vira efeito no chute
   };
 }
 
@@ -20,7 +21,11 @@ class HumanInput {
   constructor(canvas, hooks) {
     this.keys = new Set();
     this.buttons = new Set();
-    this.mouse = { x: 0, y: 0 };
+    this.canvas = canvas;
+    this.mouse = { x: 0, y: 0 };   // mira virtual (tela)
+    this.raw = { x: 0, y: 0 };     // posição real do mouse (sem pointer lock)
+    this.frozen = false;           // mira travada (segurando o chute): arrasto vira efeito
+    this.drag = { x: 0, y: 0 };
     this.hooks = hooks || {};
     this.enabled = false;        // só captura teclado/mouse na tela de jogo
     const gameKeys = new Set([
@@ -43,8 +48,13 @@ class HumanInput {
     window.addEventListener('blur', () => { this.keys.clear(); this.buttons.clear(); });
     canvas.addEventListener('mousemove', (e) => {
       const r = canvas.getBoundingClientRect();
-      this.mouse.x = e.clientX - r.left;
-      this.mouse.y = e.clientY - r.top;
+      const locked = document.pointerLockElement === canvas;
+      let dx, dy;
+      if (locked) { dx = e.movementX; dy = e.movementY; }
+      else { const nx = e.clientX - r.left, ny = e.clientY - r.top; dx = nx - this.raw.x; dy = ny - this.raw.y; this.raw.x = nx; this.raw.y = ny; }
+      if (this.frozen) { this.drag.x += dx; this.drag.y += dy; return; }
+      if (locked) { this.mouse.x = Math.max(0, Math.min(r.width, this.mouse.x + dx)); this.mouse.y = Math.max(0, Math.min(r.height, this.mouse.y + dy)); }
+      else { this.mouse.x = this.raw.x; this.mouse.y = this.raw.y; }
     });
     canvas.addEventListener('mousedown', (e) => { if (!this.enabled) return; e.preventDefault(); this.buttons.add(e.button); });
     window.addEventListener('mouseup', (e) => this.buttons.delete(e.button));
@@ -52,7 +62,20 @@ class HumanInput {
   }
 
   down(code) { return this.keys.has(code); }
-  setEnabled(on) { this.enabled = on; this.keys.clear(); this.buttons.clear(); }
+  setEnabled(on) {
+    this.enabled = on; this.keys.clear(); this.buttons.clear(); this.frozen = false;
+    if (!on && document.pointerLockElement === this.canvas) document.exitPointerLock();
+  }
+  // trava/destrava a mira (segurando o chute). Ao destravar sem pointer lock, a mira volta para o mouse real.
+  setFrozen(on) {
+    if (on === this.frozen) return;
+    this.frozen = on;
+    if (!on) { this.drag.x = 0; this.drag.y = 0; if (document.pointerLockElement !== this.canvas) { this.mouse.x = this.raw.x; this.mouse.y = this.raw.y; } }
+  }
+  lockPointer() {
+    if (document.pointerLockElement === this.canvas || !this.canvas.requestPointerLock) return;
+    try { const p = this.canvas.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (e) { /* sem pointer lock */ }
+  }
 
   sample(screenToWorld) {
     const i = emptyInput();
@@ -73,6 +96,8 @@ class HumanInput {
     i.special = this.down('Space');
     i.tackle = this.down('KeyE');
     i.throwBall = this.down('KeyF');
+    i.drag = { x: this.drag.x, y: this.drag.y };
+    this.drag.x = 0; this.drag.y = 0;
     return i;
   }
 }

@@ -128,6 +128,7 @@
     if (!i || typeof i !== 'object') return o;
     const num = (v) => (Number.isFinite(v) ? v : 0);
     o.mx = V.clamp(num(i.mx), -1, 1); o.my = V.clamp(num(i.my), -1, 1);
+    o.drag = { x: V.clamp(num(i.drag && i.drag.x), -300, 300), y: V.clamp(num(i.drag && i.drag.y), -300, 300) };
     o.aim = { x: V.clamp(num(i.aim && i.aim.x), -5000, 5000), y: V.clamp(num(i.aim && i.aim.y), -5000, 5000) };
     for (const k of ['shoot', 'pass', 'sprint', 'stance', 'special', 'tackle', 'throwBall', 'call']) o[k] = !!i[k];
     return o;
@@ -267,9 +268,13 @@
     const frameDt = Math.min(0.1, (now - last) / 1000);
     last = now;
     if (game) {
+      const h0 = game.players[humanId];
+      // mira travada enquanto o chute está segurado/travado (o arrasto vira efeito)
+      input.setFrozen(!!((h0.charge && h0.charge.kind === 'shot') || (h0.queued && h0.queued.kind === 'shot')));
       if (mode === 'guest') guestFrame(frameDt);
       else if (!paused) simFrame(frameDt);
       const human = game.players[humanId];
+      renderer.cursor = input.mouse; renderer.cursorFrozen = input.frozen;
       renderer.showScoreboard = input.down('Tab');
       renderer.updateCamera(game, human, frameDt);
       renderer.draw(game, human, frameDt);
@@ -335,6 +340,7 @@
   }
 
   canvas.addEventListener('mousedown', (e) => {
+    if (game && !renderer.showScoreboard) input.lockPointer();   // mira virtual (Rematch): cursor preso ao jogo
     if (!game || !renderer.showScoreboard || e.button !== 0 || !renderer.switchBtn) return;
     const r = canvas.getBoundingClientRect();
     const x = e.clientX - r.left, y = e.clientY - r.top, b = renderer.switchBtn;

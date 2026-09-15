@@ -49,7 +49,7 @@ const CFG = {
   SHOT_MIN_FIRST: 520,              // chute de primeira começa mais rápido (mesmo máximo)
   SHOT_WINDUP: 0.28,                // animação mínima do chute dominado: mesmo soltando cedo, a bola só sai depois disso
   PASS_WINDUP: 0.05,                // passe é quase instantâneo
-  SPIN_GAIN: 4.6, SPIN_POWER_FADE: 0.45,   // efeito: ganho por ângulo de mouse durante a carga; chute forte perde menos efeito
+  SPIN_GAIN_PX: 0.014, SPIN_POWER_FADE: 0.45,   // efeito: rad/s por pixel de arrasto do mouse com a mira travada; chute forte perde menos efeito
   // ---- passe ----
   PASS_CHARGE: 0.4, PASS_MIN: 430, PASS_MAX: 700, PASS_ASSIST_DEG: 9,
   // ---- push ball ----
