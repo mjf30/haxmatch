@@ -134,7 +134,10 @@ class Game {
   }
   hasBall(p) { return this.ball.owner === p && !p.held; }
   // raio do corpo em relação à bola: menor sem postura defensiva, maior com ela
-  ballHitbox(p) { return p.stance === 'def' ? p.r + CFG.GRAB_MARGIN_DEF : p.r * CFG.HITBOX_MUL + CFG.GRAB_MARGIN; }
+  ballHitbox(p) {
+    if (p.stance === 'def' && p.isKeeper && this.inOwnBox(p)) return p.r + CFG.GK_DEF_MARGIN;   // goleiro fechando o ângulo
+    return p.stance === 'def' ? p.r + CFG.GRAB_MARGIN_DEF : p.r * CFG.HITBOX_MUL + CFG.GRAB_MARGIN;
+  }
   // velocidade máxima que o jogador tem agora, sem bola (usada pelo snap)
   snapCap(p) {
     let cap = p.sprinting ? CFG.SPRINT : CFG.SPEED;
@@ -889,7 +892,8 @@ class Game {
       // mãos só se o último toque foi do adversário: recuo do próprio time ou o próprio
       // chute voltando da parede vai para os pés (sem repulsão/intocabilidade)
       const hands = p.isKeeper && this.inOwnBox(p) && b.lastTeam !== p.team;
-      const limit = hands ? (p.stance === 'def' ? CFG.GK_PARRY_SPEED * 1.3 : CFG.GK_PARRY_SPEED)
+      // goleiro com as mãos e postura defensiva: agarra em qualquer velocidade (valoriza sair e fechar o ângulo)
+      const limit = hands ? (p.stance === 'def' ? Infinity : CFG.GK_PARRY_SPEED)
         : (p.stance === 'def' ? CFG.CONTROL_MAX_DEF : CFG.CONTROL_MAX);
       if (canGrab && speed <= limit) {
         this.take(p, hands);

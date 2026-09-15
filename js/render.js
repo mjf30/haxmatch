@@ -142,7 +142,7 @@ class Renderer {
       ctx.rotate(-V.angle(dir));
     } else {
       // postura
-      if (p.stance === 'def') { ctx.strokeStyle = 'rgba(90,200,255,0.9)'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(0, 0, p.r + CFG.GRAB_MARGIN_DEF, 0, Math.PI * 2); ctx.stroke(); }
+      if (p.stance === 'def') { ctx.strokeStyle = 'rgba(90,200,255,0.9)'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(0, 0, game.ballHitbox(p), 0, Math.PI * 2); ctx.stroke(); }
       if (p.dribbleLag > 0) { ctx.strokeStyle = 'rgba(200,200,200,0.7)'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(0, 0, p.r + 6, 0, Math.PI * 2 * (p.dribbleLag / CFG.DRIBBLE_LAG)); ctx.stroke(); }
       else if (p.stance === 'drib') { ctx.strokeStyle = 'rgba(255,190,60,0.95)'; ctx.lineWidth = 3; ctx.setLineDash([6, 5]); ctx.beginPath(); ctx.arc(0, 0, p.r + 6, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]); }
       // tackle / dash: rastro

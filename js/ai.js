@@ -188,15 +188,15 @@ const AI = (() => {
       if ((dGoal < 820 && lane && angleOk) || dGoal < 260 || (dGoal < 450 && angleOk && g.rng() < 0.03)) return 'shoot';
       const caller = c.mates.find((m) => m.callT > 0 && !(ai.lastCall && ai.t - ai.lastCall < 2.5));
       if (caller) return 'pass';
-      if ((dOpp < 120 || g.rng() < 0.004) && bestPass(g, p, c.mates, c.opps, c.dir, 100)) return 'pass';
-      // companheiro livre lá na frente: lançamento com chute carregado
-      if ((dOpp < 160 || g.rng() < 0.01) && longPassTarget(g, p, c)) return 'longpass';
       // companheiro arrancando para a frente: passe em profundidade no ponto futuro
-      if ((dOpp < 160 || g.rng() < 0.02) && throughTarget(g, p, c)) return 'through';
+      if ((dOpp < 160 || g.rng() < 0.15) && throughTarget(g, p, c)) return 'through';
+      // companheiro livre lá na frente: lançamento com chute carregado
+      if ((dOpp < 160 || g.rng() < 0.12) && longPassTarget(g, p, c)) return 'longpass';
       // inversão de jogada quando o lado está congestionado
-      if ((dOpp < 140 || g.rng() < 0.01) && switchTarget(g, p, c)) return 'switch';
+      if ((dOpp < 140 || g.rng() < 0.10) && switchTarget(g, p, c)) return 'switch';
+      if ((dOpp < 120 || g.rng() < 0.004) && bestPass(g, p, c.mates, c.opps, c.dir, 100)) return 'pass';
       // pressionado, sem passe à frente: opção segura atrás, ou proteger a bola
-      if (dOpp < 90 && safePassTarget(g, p, c)) return 'passback';
+      if ((dOpp < 130 || g.rng() < 0.05) && safePassTarget(g, p, c)) return 'passback';
       if (!c.hasBall) return 'chase';   // bola no alvo mas sem chute/passe bom: domina
       if (dOpp < 60 || g.rng() < 0.01) return 'hold';
       return 'dribble';
@@ -241,12 +241,12 @@ const AI = (() => {
     for (const m of c.mates) {
       if (m.isKeeper) continue;
       const d = V.dist(p.pos, m.pos);
-      if (d < 600 || d > 1500) continue;
-      if ((m.pos.x - p.pos.x) * c.dir < 250) continue;        // tem que ser para a frente
+      if (d < 450 || d > 1500) continue;
+      if ((m.pos.x - p.pos.x) * c.dir < 150) continue;        // tem que ser para a frente
       const lead = V.add(m.pos, V.mul(m.vel, 0.6));
-      if (!laneClear(c.ball.pos, lead, c.opps, 30)) continue;
+      if (!laneClear(c.ball.pos, lead, c.opps, 24)) continue;
       const on = nearest(c.opps, lead).d;
-      if (on < 110) continue;
+      if (on < 85) continue;
       const s = (m.pos.x - p.pos.x) * c.dir + on * 0.5;
       if (s > bs) { bs = s; best = m; }
     }

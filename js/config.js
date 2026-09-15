@@ -70,6 +70,7 @@ const CFG = {
   // ---- goleiro ----
   GK_DIVE_DUR: 0.42, GK_DIVE_SPEED: 350, GK_DIVE_REACH: 10, GK_DIVE_RECOVER: 0.6, GK_DIVE_CD: 1.0,
   GK_PARRY_SPEED: 900, GK_HOLD_MAX: 5, GK_THROW: 560, GK_THROW_ASSIST_DEG: 20,
+  GK_DEF_MARGIN: 22,                // goleiro na área com postura defensiva: hitbox maior (agarra qualquer bola do adversário que encostar)
   GK_REPEL: 80, GK_REPEL_PUSH: 420,  // zona de repulsão com a bola nas mãos (raio além do corpo, px/s de empurrão)
 
   BOT_REACTION: 0.28,               // tempo de reação dos bots a mudanças de posse (s, com variação aleatória)
