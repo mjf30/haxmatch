@@ -181,10 +181,10 @@ const AI = (() => {
   function spaceDir(p, c) {
     const toGoal = V.norm(V.sub(c.oppGoal, p.pos));
     let best = null, bs = -Infinity;
-    for (let k = -3; k <= 3; k++) {
-      const d = V.rot(toGoal, k * 0.35);
+    for (let k = -4; k <= 4; k++) {
+      const d = V.rot(toGoal, k * 0.35);            // até ±80°: lateral também
       const fr = rayFree(p.pos, d, c.opps, 500);
-      const s = fr - Math.abs(k) * 40;
+      const s = fr - Math.abs(k) * 30;
       if (s > bs) { bs = s; best = d; }
     }
     return { dir: best, free: bs };
@@ -257,7 +257,7 @@ const AI = (() => {
       if (!c.hasBall) return 'chase';   // bola no alvo mas sem chute/passe bom: domina
       if (dOpp < 60 || g.rng() < 0.01) return 'hold';
       const sp = spaceDir(p, c);
-      if (sp.free > 260 && dOpp > 90) return 'carryspace';   // tem campo aberto: conduz para o espaço
+      if (sp.free > 340 && dOpp > 120) return 'carryspace';   // muito campo aberto: conduz para o espaço
       return 'dribble';
     }
     // goleiro fora da área (ou sem goleiro) e eu sou o mais perto do gol: assumo o gol
@@ -422,8 +422,8 @@ const AI = (() => {
         const d = sp.dir || V.norm(V.sub(c.oppGoal, p.pos));
         inp.mx = d.x; inp.my = d.y;
         inp.aim = V.add(p.pos, V.mul(d, 150));
-        inp.sprint = p.stamina > 8;
-        if (p.cd.grab <= 0 && sp.free > 160) inp.special = true;   // push ball
+        inp.sprint = p.stamina > 8 && sp.free > 200;
+        if (p.cd.grab <= 0 && sp.free > 300) inp.special = true;   // push ball só com muito espaço
         return inp;
       }
 
@@ -502,14 +502,13 @@ const AI = (() => {
       }
       inp.mx = steer.x; inp.my = steer.y;
       inp.aim = V.add(p.pos, V.mul(steer, 120));
+      // condução calma: bola no pé; sem push (empurrar é a decisão "carryspace")
       const clearAhead = !c.opps.some((o) => {
         const d = V.sub(o.pos, p.pos), l = V.len(d);
-        return l < 230 && V.dot(V.norm(d), steer) > 0.55;
+        return l < 300 && V.dot(V.norm(d), steer) > 0.5;
       });
-      if (clearAhead && p.stamina > 10) {
-        inp.sprint = true;
-        if (p.cd.grab <= 0) inp.special = true;          // push ball
-      } else if (dOpp < 80) {
+      if (clearAhead && p.stamina > 10 && V.dist(p.pos, c.oppGoal) > 600) inp.sprint = true;   // corre com a bola no pé
+      if (dOpp < 80) {
         inp.stance = true;                                // postura de drible
         if (p.cd.dribble <= 0 && g.rng() < 0.06) inp.special = true;
       }
