@@ -116,6 +116,8 @@ class Game {
     return p;
   }
   hasBall(p) { return this.ball.owner === p && !p.held; }
+  // raio do corpo em relação à bola: menor sem postura defensiva, maior com ela
+  ballHitbox(p) { return p.stance === 'def' ? p.r + CFG.GRAB_MARGIN_DEF : p.r * CFG.HITBOX_MUL + CFG.GRAB_MARGIN; }
   // bola solta perto o bastante para agir de primeira (zona de ação)
   ballInZone(p) {
     const b = this.ball;
@@ -689,19 +691,28 @@ class Game {
       const d = V.dist(p.pos, b.pos);
       const free = p.fallen <= 0 && p.getup <= 0 && p.cd.grab <= 0;
       if (b.owner) {
-        // bola dominada por outro: encostar nunca rouba (só tackle ou carrinho);
-        // o corpo apenas desvia a bola fisicamente
-        if (d < p.r + b.r) {
+        // bola dominada por outro: encostar nunca rouba (só tackle ou carrinho).
+        // Sem postura: o corpo só desvia a bola. Com postura defensiva: se a bola
+        // for passar por dentro de você, ela sai do domínio do adversário (fica solta).
+        const hb = this.ballHitbox(p);
+        if (d < hb + b.r) {
+          const o = b.owner;
           const n = d > 1e-6 ? V.norm(V.sub(b.pos, p.pos)) : { x: 1, y: 0 };
-          b.pos = V.add(p.pos, V.mul(n, p.r + b.r + 0.5));
+          b.pos = V.add(p.pos, V.mul(n, hb + b.r + 0.5));
+          if (p.stance === 'def' && o.team !== p.team && free && !p.action) {
+            b.owner = null; o.cd.grab = 0.35;
+            b.vel = V.add(V.mul(n, 60), V.mul(o.vel, 0.5));
+            b.lastTouch = p; b.lastTeam = p.team;
+            this.events.push({ type: 'block', p, victim: o });
+          }
         }
         continue;
       }
       // bola acabou de sair do pé deste jogador: passa entre as pernas
       if (b.lastTouch === p && p.cd.through > 0) continue;
       const canGrab = free && (!p.action || p.action.type === 'dash');
-      const margin = p.stance === 'def' ? CFG.GRAB_MARGIN_DEF : CFG.GRAB_MARGIN;
-      const R = p.r + b.r + (canGrab ? margin : 0);
+      const hb = this.ballHitbox(p);
+      const R = hb + b.r;
       if (d >= R) continue;
       if (canGrab && p.queued) { this.fireQueued(p); continue; }   // toque de primeira
       const speed = V.len(b.vel);
@@ -714,7 +725,7 @@ class Game {
       } else {
         // rebate no corpo
         const n = d > 1e-6 ? V.norm(V.sub(b.pos, p.pos)) : { x: 1, y: 0 };
-        b.pos = V.add(p.pos, V.mul(n, p.r + b.r + 0.5));
+        b.pos = V.add(p.pos, V.mul(n, hb + b.r + 0.5));
         const rel = V.sub(b.vel, p.vel);
         if (V.dot(rel, n) < 0) b.vel = V.add(V.mul(V.reflect(rel, n), CFG.DEFLECT_BOUNCE), p.vel);
         b.spin *= 0.3; b.lastTouch = p; b.lastTeam = p.team;

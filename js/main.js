@@ -291,6 +291,7 @@
       case 'gloves': renderer.addFlash('luvas', p.pos, '#ffd84a'); break;
       case 'fake': renderer.addFlash('finta', p.pos, '#fff'); break;
       case 'first-touch': renderer.addFlash('de primeira!', p.pos, '#fff'); break;
+      case 'block': renderer.addFlash('bloqueou', p.pos, '#8cf'); break;
     }
   }
 

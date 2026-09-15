@@ -108,10 +108,12 @@ curto rápido com a bola grudada (invulnerável durante o passo).
 - Personagem "enquadra" a bola, domina bolas fortes, e Espaço vira um dash curto
   lateral para interceptar.
 
-**2D:** velocidade 0,8×; raio de interceptação maior; domina chutes fortes;
-Espaço + direção = dash curto. Encostar no portador nunca rouba a bola: só
-tackle, carrinho ou disputar a bola quando ela está solta (após um push, por
-exemplo).
+**2D:** velocidade 0,8×; hitbox para a bola maior (sem a postura o corpo vale só
+70% do raio); domina chutes fortes; Espaço + direção = dash curto. Encostar no
+portador nunca rouba a bola: só tackle, carrinho ou disputar a bola quando ela
+está solta (após um push, por exemplo). Exceção: com a postura defensiva ativa,
+se a bola dominada pelo adversário for passar por dentro de você, ela sai do
+domínio dele e fica solta (bloqueio de corpo).
 
 ### Tackle em pé (E)
 - Investida curta para tirar a bola do pé do adversário. Baixo risco: recuperação
