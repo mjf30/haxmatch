@@ -132,6 +132,9 @@ def main():
     ap.add_argument('--init_js', type=str, default=None)        # pesos iniciais no layout JS (clonagem / ES), só para macro
     ap.add_argument('--out', type=str, default=None)            # arquivo .js de exportação
     ap.add_argument('--script_frac', type=float, default=0.0)   # fração das partidas com o script (torch) no time 1
+    ap.add_argument('--attack', type=float, default=0.0)        # fração de partidas no cenário de finalização (episódios de 8 s)
+    ap.add_argument('--build', type=float, default=0.0)         # fração no cenário de construção (episódios de 15 s)
+    ap.add_argument('--curriculum', type=int, default=0)        # iterações em que as frações decaem linearmente a zero (0 = fixas)
     ap.add_argument('--league_init', type=str, default=None)   # checkpoints congelados que ficam na liga o treino inteiro (benchmark), separados por vírgula
     ap.add_argument('--approach', type=float, default=0.02)   # shaping denso: aproximar-se da bola solta (currículo inicial)
     ap.add_argument('--sanity', action='store_true')
@@ -181,12 +184,28 @@ def main():
     possStreak = torch.zeros(B, device=dev)                    # ticks seguidos com a bola no mesmo time
     lastKickTeam = torch.full((B,), -1, dtype=torch.long, device=dev); lastKickTick = torch.full((B,), -1e9, device=dev)
     W2 = CFG['FIELD_W'] / 2
+    # cenários sintéticos por partida: 0 partida, 1 finalização, 2 construção; scenT = tempo restante do episódio
+    scen = torch.zeros(B, dtype=torch.long, device=dev); scenT = torch.zeros(B, device=dev)
+    cur = {'scale': 1.0}
+    def assign(idx):
+        n = idx.numel()
+        if n == 0: return
+        fA, fB = args.attack * cur['scale'], args.build * cur['scale']
+        rr = torch.rand(n, device=dev)
+        k = torch.where(rr < fA, 1, torch.where(rr < fA + fB, 2, 0))
+        scen[idx] = k; scenT[idx] = torch.where(k == 1, 8.0, torch.where(k == 2, 15.0, 0.0))
+        s = k > 0
+        if s.any():
+            att = (torch.rand(int(s.sum()), device=dev) < 0.5).long()
+            sim.setup_scenario(idx[s], k[s], att); sim.time[idx[s]] = sim.seconds
+    assign(torch.arange(B, device=dev))
     obs = FT.build(sim)
     t0 = time.time()
     for it in range(it0 + 1, args.iters + 1):
         # ---- rollout ----
         R = args.rollout
         shape = max(args.shape_floor, 1.0 - it / args.shape_decay) if args.shape_decay > 0 else 1.0
+        cur['scale'] = max(0.0, 1.0 - it / args.curriculum) if args.curriculum > 0 else 1.0
         obs_buf = torch.zeros(R, B, P, FT.SIZE, device=dev)
         act_buf = torch.zeros(R, B, P, len(pol.heads), dtype=torch.long, device=dev)
         logp_buf = torch.zeros(R, B, P, device=dev); val_buf = torch.zeros(R, B, P, device=dev)
@@ -352,12 +371,24 @@ def main():
                     sim.stamina[idx] = CFG['STAMINA_MAX']; sim.effortBar[idx] = 1; sim.exhausted[idx] = False
                     sim.kickoffTeam[idx] = (torch.rand(idx.numel(), device=dev) < 0.5).long()
                     sim.kickoff(idx)
+                    assign(idx)
                     # sorteia oponentes da liga para essas partidas
                     rr = torch.rand(idx.numel(), device=dev)
                     scriptEnv[idx] = rr < args.script_frac
                     if league:
                         leagueEnv[idx] = (rr >= args.script_frac) & (rr < args.script_frac + args.league_frac)
                         leagueIdx[idx] = torch.randint(0, len(league), (idx.numel(),), device=dev)
+                # cenários: episódio acaba por tempo ou gol -> recomeça (novo sorteio de cenário); conta como fim de episódio
+                scenT = torch.where(scen > 0, scenT - DT, scenT)
+                epEnd = (scen > 0) & ((scenT <= 0) | (dsc.sum(-1) > 0))
+                if epEnd.any():
+                    idx = epEnd.nonzero().squeeze(1)
+                    sim.time[idx] = sim.seconds; sim.score[idx] = 0; prevScore[idx] = 0
+                    sim.stamina[idx] = CFG['STAMINA_MAX']; sim.effortBar[idx] = 1; sim.exhausted[idx] = False
+                    sim.kickoffTeam[idx] = (torch.rand(idx.numel(), device=dev) < 0.5).long()
+                    sim.kickoff(idx)
+                    assign(idx)
+                    done = done | epEnd
                 for k in ('shot', 'control', 'pass'):
                     if k in ev: stat['shots' if k == 'shot' else ('control' if k == 'control' else 'passes')] += float(ev[k].sum())
                 stat['steps'] += 1

@@ -1105,6 +1105,42 @@ class TorchSim:
             self.isKeeper[bi[assign], best[assign]] = True
             self.cd['gloves'][bi[assign], best[assign]] = 1.5
 
+    def setup_scenario(self, idx, kind, attTeam):
+        """cenários sintéticos (como train/bundle.js setupScenario), chamados após kickoff(idx):
+        kind 1 = finalização (bola no pé perto da área adversária, defesa posicionada);
+        kind 2 = construção (bola no pé no meio-campo). attTeam [n]: time atacante (0/1)."""
+        n = idx.numel()
+        if n == 0:
+            return
+        P, T, d = self.P, self.T, self.dev
+        W2, H2 = CFG['FIELD_W'] / 2, CFG['FIELD_H'] / 2
+        dirn = torch.where(attTeam == 0, 1.0, -1.0).to(d)                        # [n]
+        attack = (kind == 1)
+        r = lambda *s: self.rand(*s)
+        x = torch.where(attack, dirn * (W2 - 300 - r(n) * 500), dirn * (r(n) * 400 - 300))
+        y = (r(n) - 0.5) * H2 * 1.2
+        cidx = attTeam * T + 1 + (r(n) * (T - 1)).long().clamp(max=T - 2)       # portador: um dos meus que não é o slot 0
+        team = self.team.view(1, P); pidx = self.idx.view(1, P)
+        mine = team == attTeam.view(n, 1)
+        rA, rB = r(n, P), r(n, P)
+        dn = dirn.view(n, 1)
+        offA = torch.where(attack.view(n, 1), 100.0, -150.0)
+        pMine = torch.stack([x.view(n, 1) - dn * (rA * 300 - offA), (rB - 0.5) * H2 * 1.6], -1)
+        pGk = torch.stack([dn * (W2 - 60) + 0 * rA, (rA - 0.5) * 100], -1)
+        pOpp = torch.where(attack.view(n, 1, 1), torch.stack([dn * (W2 - 150 - rA * 600), (rB - 0.5) * H2 * 1.6], -1),
+                           torch.stack([dn * (W2 - 250 - rA * 700), (rB - 0.5) * H2 * 1.6], -1))
+        pos = torch.where(mine.unsqueeze(-1), pMine, torch.where((pidx == 0).unsqueeze(-1), pGk, pOpp))
+        isC = (torch.arange(P, device=d).view(1, P) == cidx.view(n, 1))
+        pos = torch.where(isC.unsqueeze(-1), torch.stack([x, y], -1).view(n, 1, 2).expand(n, P, 2), pos)
+        self.pos[idx] = pos; self.vel[idx] = 0
+        fac = torch.stack([dn.expand(n, P), torch.zeros(n, P, device=d)], -1)
+        self.facing[idx] = torch.where(isC.unsqueeze(-1), fac, self.facing[idx])
+        self.moveDir[idx] = torch.where(isC.unsqueeze(-1), fac, self.moveDir[idx])
+        self.owner[idx] = cidx; self.held[idx] = False; self.lock[idx] = -1
+        self.bpos[idx] = torch.stack([x + dirn * (CFG['PLAYER_R'] + CFG['BALL_R'] + 3), y], -1); self.bvel[idx] = 0; self.bspin[idx] = 0
+        self.lastTouch[idx] = cidx; self.lastTeam[idx] = attTeam
+        self.state[idx] = M_PLAY; self.stateT[idx] = 0
+
     def active_mask(self):
         return torch.ones(self.B, self.P, dtype=torch.bool, device=self.dev)
 
