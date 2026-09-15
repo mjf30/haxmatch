@@ -17,6 +17,9 @@ const RawBot = (() => {
   function think(p, g, dt, policy) {
     const inp = emptyInput();
     if (!policy) return inp;
+    const held = AI.reactionHold(p, g, dt);   // mesmo tempo de reação dos bots script
+    if (held) return held;
+    p.ai.t = (p.ai.t || 0) + dt;
     // frame-skip: a política treinada decide a cada `skip` ticks e mantém a ação entre decisões
     const skip = policy.skip || 1;
     if (skip > 1 && p._raw && p._raw.n < skip) { p._raw.n++; return p._raw.inp; }
@@ -42,6 +45,7 @@ const RawBot = (() => {
     }
     inp.shoot = !!shoot; inp.pass = !!pas; inp.sprint = !!sprint; inp.stance = !!stance; inp.special = !!special; inp.tackle = !!tackle;
     if (skip > 1) p._raw = { inp, n: 1 };
+    p.ai.lastInput = inp;
     return inp;
   }
 

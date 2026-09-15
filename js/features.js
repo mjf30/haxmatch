@@ -223,5 +223,5 @@ const Features = (() => {
     return out;
   }
 
-  return { build, SIZE, MAX_MATES, MAX_OPPS };
+  return { build, SIZE, MAX_MATES, MAX_OPPS, pitchControl };
 })();
