@@ -3,7 +3,7 @@
 // Saídas (12): mover x,y · mira x,y · chute · passe · sprint · postura · especial · tackle · arremesso · pedir bola
 const NNBot = (() => {
   const OUT = 12;
-  const SIZES_DEFAULT = [Features.SIZE, 64, 64, OUT];
+  const SIZES_DEFAULT = [Features.SIZE, 128, 128, OUT];
   const sig = (v) => 1 / (1 + Math.exp(-v));
 
   // policy = { sizes, w }

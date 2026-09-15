@@ -5,9 +5,9 @@ const path = require('path');
 const vm = require('vm');
 
 function loadSim() {
-  const files = ['config.js', 'vec.js', 'input.js', 'game.js', 'ai.js', 'features.js', 'nn.js', 'nnbot.js'];
+  const files = ['config.js', 'vec.js', 'input.js', 'game.js', 'ai.js', 'features.js', 'nn.js', 'nnbot.js', 'macrobot.js'];
   const code = files.map((f) => fs.readFileSync(path.join(__dirname, '..', 'js', f), 'utf8').replace(/^'use strict';/, '')).join('\n')
-    + '\nthis.__exports = { Game, AI, CFG, V, emptyInput, Features, NN, NNBot };';
+    + '\nthis.__exports = { Game, AI, CFG, V, emptyInput, Features, NN, NNBot, MacroBot };';
   const sandbox = { console, Math, Infinity, Date, Float32Array };
   vm.createContext(sandbox);
   vm.runInContext(code, sandbox, { filename: 'sim-bundle.js' });
@@ -18,19 +18,23 @@ function loadSim() {
 // ('script' = bots atuais, ou outra policy). Devolve métricas para o fitness.
 // Currículo 'attack': começa com a bola no pé de um jogador da rede perto do gol
 // adversário (ensina a finalizar); 'match': partida normal.
+// 'build': bola no pé no meio-campo com a defesa adversária posicionada (ponte
+// entre o ataque puro e a partida completa).
 function setupScenario(sim, g, nnTeam, scenario, rng) {
   const { CFG } = sim;
-  if (scenario !== 'attack') return;
+  if (scenario !== 'attack' && scenario !== 'build') return;
   const dir = nnTeam === 0 ? 1 : -1;
   const W2 = CFG.FIELD_W / 2, H2 = CFG.FIELD_H / 2;
   g.state = 'play'; g.stateT = 0; g.msg = null;
   const mine = g.players.filter((p) => p.team === nnTeam && p.active && p.idx !== 0);
   const carrier = mine[Math.floor(rng() * mine.length)];
-  const x = dir * (W2 - 300 - rng() * 500), y = (rng() - 0.5) * H2 * 1.2;
+  const attack = scenario === 'attack';
+  const x = attack ? dir * (W2 - 300 - rng() * 500) : dir * (rng() * 400 - 300), y = (rng() - 0.5) * H2 * 1.2;
   carrier.pos = { x, y };
-  for (const p of mine) if (p !== carrier) p.pos = { x: x - dir * (100 + rng() * 300), y: (rng() - 0.5) * H2 * 1.6 };
+  for (const p of mine) if (p !== carrier) p.pos = { x: x - dir * (rng() * 300 - (attack ? 100 : -150)), y: (rng() - 0.5) * H2 * 1.6 };
   for (const p of g.players.filter((q) => q.team !== nnTeam && q.active)) {
-    p.pos = p.idx === 0 ? { x: dir * (W2 - 60), y: (rng() - 0.5) * 100 } : { x: dir * (W2 - 150 - rng() * 600), y: (rng() - 0.5) * H2 * 1.6 };
+    if (p.idx === 0) p.pos = { x: dir * (W2 - 60), y: (rng() - 0.5) * 100 };
+    else p.pos = attack ? { x: dir * (W2 - 150 - rng() * 600), y: (rng() - 0.5) * H2 * 1.6 } : { x: dir * (W2 - 250 - rng() * 700), y: (rng() - 0.5) * H2 * 1.6 };
   }
   g.ball.owner = carrier; g.ball.pos = { x: x + dir * (carrier.r + g.ball.r + 3), y }; g.ball.vel = { x: 0, y: 0 }; g.ball.lock = null;
   carrier.facing = { x: dir, y: 0 }; carrier.moveDir = { x: dir, y: 0 };
@@ -39,7 +43,8 @@ function setupScenario(sim, g, nnTeam, scenario, rng) {
 function mulberry(a) { return function () { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 
 function playMatch(sim, policy, opp, opts) {
-  const { Game, AI, CFG, NNBot } = sim;
+  const { Game, AI, CFG, NNBot, MacroBot } = sim;
+  const act = (p, g, pol) => (pol.kind === 'macro' ? MacroBot.think(p, g, CFG.DT, pol) : NNBot.think(p, g, CFG.DT, pol));
   const seconds = opts.seconds || 60;
   const nnTeam = opts.nnTeam || 0;
   const g = new Game({ teamSize: opts.teamSize || 4, seed: opts.seed || 1 });
@@ -47,27 +52,34 @@ function playMatch(sim, policy, opp, opts) {
   const rng = mulberry(opts.seed || 1);
   const scenario = opts.scenario || 'match';
   setupScenario(sim, g, nnTeam, scenario, rng);
-  const m = { gf: 0, ga: 0, poss: 0, ballX: 0, shots: 0, ticks: 0, touches: 0, onTarget: 0 };
+  const m = { gf: 0, ga: 0, poss: 0, ballX: 0, shots: 0, ticks: 0, touches: 0, onTarget: 0, stall: 0, episodes: 1, scenario };
   const steps = Math.floor(seconds / CFG.DT);
+  const EPISODE = Math.floor((scenario === 'build' ? (opts.buildEpisode || 15) : (opts.attackEpisode || 8)) / CFG.DT);   // episódio: 8 s (ataque) / 15 s (construção) e recomeça
+  let epTick = 0, possStreak = 0;
   for (let i = 0; i < steps; i++) {
     for (const p of g.players) {
       if (!p.active) continue;
       const mine = p.team === nnTeam;
       const pol = mine ? policy : (opp === 'script' ? null : opp);
-      g.setInput(p.id, pol ? NNBot.think(p, g, CFG.DT, pol) : AI.think(p, g, CFG.DT));
+      g.setInput(p.id, pol ? act(p, g, pol) : AI.think(p, g, CFG.DT));
     }
     g.step(CFG.DT);
     if (g.state === 'play') {
       m.ticks++;
       const dir = nnTeam === 0 ? 1 : -1;
       m.ballX += g.ball.pos.x * dir / (CFG.FIELD_W / 2);
-      if (g.ball.owner && g.ball.owner.team === nnTeam) m.poss++;
+      if (g.ball.owner && g.ball.owner.team === nnTeam) {
+        m.poss++;
+        possStreak++;
+        if (possStreak > 4 / CFG.DT) m.stall++;   // enrolando: mais de 4 s seguidos com a bola sem soltar
+      } else possStreak = 0;
     }
+    if ((scenario === 'attack' || scenario === 'build') && ++epTick >= EPISODE) { epTick = 0; m.episodes++; g.kickoff(false); setupScenario(sim, g, nnTeam, scenario, rng); }
     for (const e of g.events) {
       if (e.type === 'goal') {
         if (e.team === nnTeam) m.gf++; else m.ga++;
         // no currículo de ataque, recomeça o cenário após o gol
-        if (scenario === 'attack') { g.kickoff(false); setupScenario(sim, g, nnTeam, scenario, rng); }
+        if (scenario === 'attack' || scenario === 'build') { epTick = 0; m.episodes++; g.kickoff(false); setupScenario(sim, g, nnTeam, scenario, rng); }
       }
       if (e.type === 'shot' && e.p.team === nnTeam) {
         m.shots++;
@@ -88,12 +100,21 @@ function playMatch(sim, policy, opp, opts) {
 
 function fitnessOf(m) {
   const t = Math.max(1, m.ticks);
+  if (m.scenario === 'attack') {
+    // currículo de finalização: só marcar e chutar no gol contam (nada de posse)
+    return 10 * m.gf - 3 * m.ga + 1.5 * m.onTarget + 0.3 * m.shots - 0.002 * m.stall;
+  }
+  if (m.scenario === 'build') {
+    // construção: levar a bola ao ataque e finalizar; enrolar é penalizado
+    return 10 * m.gf - 5 * m.ga + 1.5 * m.onTarget + 0.3 * m.shots + 1.5 * (m.ballX / t) - 0.004 * m.stall;
+  }
   return 10 * (m.gf - m.ga)
-    + 3 * (m.poss / t)                 // posse
-    + 2 * (m.ballX / t)                // bola no campo de ataque
-    + 0.15 * Math.min(12, m.shots)     // finalizar
-    + 0.8 * Math.min(8, m.onTarget)    // finalizar no gol
-    + 0.02 * Math.min(50, m.touches);  // ir na bola
+    + 1.5 * (m.poss / t)               // posse (peso menor: não vale segurar a bola)
+    + 1.0 * (m.ballX / t)              // bola no campo de ataque
+    + 0.3 * Math.min(12, m.shots)      // finalizar
+    + 1.5 * Math.min(8, m.onTarget)    // finalizar no gol
+    + 0.02 * Math.min(50, m.touches)   // ir na bola
+    - 0.004 * m.stall;                 // enrolar com a bola
 }
 
 module.exports = { loadSim, playMatch, fitnessOf };

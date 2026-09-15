@@ -1,8 +1,9 @@
 'use strict';
 // Treino por neuroevolução (OpenAI-ES com amostragem antitética e ranks).
 // Uso: node train/train.js [--gens 200] [--pop 32] [--seconds 60] [--sigma 0.05] [--lr 0.03]
-//                          [--attack 0.5] (fração de partidas no currículo de finalização)
+//                          [--attack 0.5] [--build 0.3] (frações de partidas nos currículos de finalização / construção)
 //                          [--league] (self-play contra uma liga de versões anteriores + script)
+//                          [--policy macro] (rede híbrida: decisão tática; execução pelo script)
 //                          [--resume js/nn_weights.js] [--workers N]
 // Salva os melhores pesos em js/nn_weights.js (usado pelo navegador) a cada avaliação.
 const os = require('os');
@@ -24,13 +25,16 @@ const TEAM = parseInt(opt('team', '4'), 10);
 const WORKERS = parseInt(opt('workers', String(Math.max(1, os.cpus().length - 1))), 10);
 const SELFPLAY = flag('selfplay') || flag('league');
 const ATTACK = parseFloat(opt('attack', '0'));     // fração de partidas no cenário de ataque
+const BUILD = parseFloat(opt('build', '0'));       // fração no cenário de construção
 const LEAGUE_MAX = 6;
 const RESUME = opt('resume', null);
 const OUT = path.join(__dirname, '..', 'js', 'nn_weights.js');
+const LATEST = path.join(__dirname, 'latest.json');   // theta mais recente (retomar com --resume train/latest.json)
 
 const sim = loadSim();
-const { NN, NNBot, Features } = sim;
-const sizes = NNBot.SIZES_DEFAULT;
+const { NN, NNBot, MacroBot, Features } = sim;
+const KIND = opt('policy', 'macro');
+const sizes = KIND === 'macro' ? MacroBot.SIZES_DEFAULT : NNBot.SIZES_DEFAULT;
 const N = NN.paramCount(sizes);
 
 function mulberry(a) { return function () { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
@@ -46,7 +50,7 @@ if (RESUME && fs.existsSync(RESUME)) {
 } else {
   theta = NN.init(sizes, rng);
 }
-console.log(`rede ${sizes.join('x')} = ${N} parâmetros · observação ${Features.SIZE} · workers ${WORKERS} · pop ${2 * POP} · ${SECONDS}s/partida · ${MATCHES} partidas/candidato · ${SELFPLAY ? 'self-play' : 'vs bots script'}`);
+console.log(`política ${KIND} · rede ${sizes.join('x')} = ${N} parâmetros · observação ${Features.SIZE} · workers ${WORKERS} · pop ${2 * POP} · ${SECONDS}s/partida · ${MATCHES} partidas/candidato · ${SELFPLAY ? 'self-play' : 'vs bots script'}`);
 
 // ---- pool de workers ----
 const workers = [];
@@ -65,7 +69,7 @@ function evaluate(w, opps, seeds, scenarios) {
     const id = nextId++;
     pending.set(id, resolve);
     workers[rr++ % workers.length].postMessage({
-      id, sizes, w: Array.from(w),
+      id, sizes, kind: KIND, w: Array.from(w),
       opps: opps.map((o) => (o === 'script' ? 'script' : Array.from(o))),
       seeds, scenarios, opts: { seconds: SECONDS, teamSize: TEAM },
     });
@@ -73,7 +77,7 @@ function evaluate(w, opps, seeds, scenarios) {
 }
 
 function save(w, info) {
-  const obj = { sizes, obs: Features.SIZE, info, w: Array.from(w).map((v) => Math.round(v * 10000) / 10000) };
+  const obj = { kind: KIND, sizes, obs: Features.SIZE, info, w: Array.from(w).map((v) => Math.round(v * 10000) / 10000) };
   fs.writeFileSync(OUT, `'use strict';\n// Pesos treinados por train/train.js (${new Date().toISOString()}). ${info}\nconst NN_WEIGHTS = ${JSON.stringify(obj)};\n`);
 }
 
@@ -83,8 +87,9 @@ let adamT = 0;
 
 (async () => {
   let best = -Infinity, bestW = theta.slice();
+  const base0 = theta.slice();   // versão inicial: referência fixa na avaliação e na liga
   const t0 = Date.now();
-  const league = [];   // versões anteriores salvas (self-play em liga)
+  const league = [base0];   // versões anteriores (self-play em liga)
   for (let gen = 1; gen <= GENS; gen++) {
     const gt = Date.now();
     // oponentes desta geração: sempre um script; em liga, o resto sorteado da liga
@@ -92,7 +97,9 @@ let adamT = 0;
     if (SELFPLAY && league.length) for (let m = 1; m < MATCHES; m++) opps.push(league[Math.floor(rng() * league.length)]);
     // cenários: fração ATTACK no currículo de finalização
     const scenarios = [];
-    for (let m = 0; m < MATCHES; m++) scenarios.push(rng() < ATTACK ? 'attack' : 'match');
+    // mistura FIXA por geração (evita gradiente ruidoso): nA de ataque, nB de construção, resto partida
+    const nA = Math.round(ATTACK * MATCHES), nB = Math.round(BUILD * MATCHES);
+    for (let m = 0; m < MATCHES; m++) scenarios.push(m < nA ? 'attack' : (m < nA + nB ? 'build' : 'match'));
     const eps = [];
     const evals = [];
     const seeds = [];
@@ -131,16 +138,18 @@ let adamT = 0;
     const mx = Math.max(...fits);
     const gf = res.reduce((a, r) => a + r.ms.reduce((s, m) => s + m.gf, 0), 0), ga = res.reduce((a, r) => a + r.ms.reduce((s, m) => s + m.ga, 0), 0);
     console.log(`gen ${gen} · fitness média ${mean.toFixed(2)} máx ${mx.toFixed(2)} · gols ${gf}:${ga} · ${((Date.now() - gt) / 1000).toFixed(1)}s`);
+    fs.writeFileSync(LATEST, JSON.stringify({ kind: KIND, sizes, gen, w: Array.from(theta).map((v) => Math.round(v * 10000) / 10000) }));
     // avaliação do theta atual contra os bots script em sementes fixas
     if (gen % 5 === 0 || gen === GENS) {
-      const r = await evaluate(theta, ['script'], [7, 21, 3, 11, 42, 99], ['match']);
+      // sementes fixas: metade contra o script, metade contra a versão inicial
+      const r = await evaluate(theta, SELFPLAY ? ['script', base0] : ['script'], [7, 21, 3, 11, 42, 99], ['match']);
       const gfe = r.ms.reduce((s, m) => s + m.gf, 0), gae = r.ms.reduce((s, m) => s + m.ga, 0);
-      console.log(`   >> avaliação vs script: fitness ${r.fitness.toFixed(2)} · gols ${gfe}:${gae} em ${r.ms.length} partidas de ${SECONDS}s`);
+      console.log(`   >> avaliação vs ${SELFPLAY ? 'script+inicial' : 'script'}: fitness ${r.fitness.toFixed(2)} · gols ${gfe}:${gae} em ${r.ms.length} partidas de ${SECONDS}s`);
+      if (SELFPLAY) { league.push(theta.slice()); if (league.length > LEAGUE_MAX) league.splice(1, 1); }   // liga: inicial + versões recentes
       if (r.fitness > best) {
         best = r.fitness; bestW = theta.slice();
         save(bestW, `gen ${gen}, fitness vs script ${best.toFixed(2)}, gols ${gfe}:${gae}`);
         console.log('   >> salvo em js/nn_weights.js');
-        if (SELFPLAY) { league.push(bestW.slice()); if (league.length > LEAGUE_MAX) league.shift(); }
       }
     }
   }

@@ -22,9 +22,10 @@
   let tick = 0, seq = 0;
   let withBots = true;              // host: vagas sem humano têm bot (true) ou ficam vazias (false)
   let botKind = 'script';           // 'script' (IA programada) ou 'nn' (rede neural treinada)
-  const nnPolicy = (typeof NN_WEIGHTS !== 'undefined') ? NNBot.fromExport(NN_WEIGHTS) : null;
+  const nnPolicy = (typeof NN_WEIGHTS !== 'undefined') ? (NN_WEIGHTS.kind === 'macro' ? MacroBot.fromExport(NN_WEIGHTS) : NNBot.fromExport(NN_WEIGHTS)) : null;
+  const nnKind = (typeof NN_WEIGHTS !== 'undefined') ? NN_WEIGHTS.kind : null;
   if (!nnPolicy) { const o = $('botKind').querySelector('option[value="nn"]'); if (o) { o.disabled = true; o.textContent = 'rede neural (sem pesos)'; } }
-  const botThink = (p, dt) => (botKind === 'nn' && nnPolicy ? NNBot.think(p, game, dt, nnPolicy) : AI.think(p, game, dt));
+  const botThink = (p, dt) => (botKind === 'nn' && nnPolicy ? (nnKind === 'macro' ? MacroBot.think(p, game, dt, nnPolicy) : NNBot.think(p, game, dt, nnPolicy)) : AI.think(p, game, dt));
 
   // ---------- lobby ----------
   $('teamSize').value = String(teamSize);

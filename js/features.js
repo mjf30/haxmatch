@@ -4,7 +4,7 @@
 // posições relativas ao jogador e normalizadas. Tamanho fixo (vagas vazias = zeros).
 const Features = (() => {
   const MAX_MATES = 4, MAX_OPPS = 5;
-  const SELF = 22, BALL = 12, MATE = 7, OPP = 7, GOALS = 6, MISC = 6;
+  const SELF = 31, BALL = 12, MATE = 7, OPP = 7, GOALS = 6, MISC = 6;
   const SIZE = SELF + BALL + MAX_MATES * MATE + MAX_OPPS * OPP + GOALS + MISC;
   const POS = 1 / (CFG.FIELD_W / 2);   // posições em [-1, 1]
   const VEL = 1 / 300;
@@ -19,8 +19,10 @@ const Features = (() => {
     const relPos = (q) => { put((q.x - p.pos.x) * dir * POS); put((q.y - p.pos.y) * POS); };
     const vel = (v) => { put(v.x * dir * VEL); put(v.y * VEL); };
 
-    // ---- eu (22) ----
+    // ---- eu (31) ----
     put(p.pos.x * dir * POS); put(p.pos.y / H2);
+    relPos(p.home);                                   // posição-base da formação (papel tático)
+    for (let i = 0; i < 5; i++) put(p.idx === i ? 1 : 0);   // índice na formação (0 = goleiro inicial)
     vel(p.vel);
     put(p.facing.x * dir); put(p.facing.y);
     put(p.stamina / CFG.STAMINA_MAX); put(p.exhausted ? 1 : 0);
@@ -33,6 +35,8 @@ const Features = (() => {
     put(p.action ? 1 : 0);
     put((p.recover > 0 || p.fallen > 0 || p.getup > 0) ? 1 : 0);
     put(p.dribbleLag > 0 ? 1 : 0);
+    put(p.charge ? Math.min(1, p.charge.t / (p.charge.kind === 'shot' ? CFG.CHARGE_MAX : CFG.PASS_CHARGE)) : 0);   // progresso da carga
+    put(p.queued ? Math.min(1, (p.queued.age || 0) / CFG.LOCK_MAX) : 0);   // idade da ação travada
 
     // ---- bola (12) ----
     relPos(b.pos); put(V.dist(p.pos, b.pos) * DIST);
