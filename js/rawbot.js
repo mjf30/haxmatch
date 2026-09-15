@@ -17,6 +17,9 @@ const RawBot = (() => {
   function think(p, g, dt, policy) {
     const inp = emptyInput();
     if (!policy) return inp;
+    // frame-skip: a política treinada decide a cada `skip` ticks e mantém a ação entre decisões
+    const skip = policy.skip || 1;
+    if (skip > 1 && p._raw && p._raw.n < skip) { p._raw.n++; return p._raw.inp; }
     const dir = p.team === 0 ? 1 : -1;
     const x = Features.build(p, g, new Float32Array(Features.SIZE));
     const y = NN.forward(policy.sizes, policy.w, x);
@@ -38,12 +41,13 @@ const RawBot = (() => {
       inp.drag = { x: perp.x * px, y: perp.y * px };
     }
     inp.shoot = !!shoot; inp.pass = !!pas; inp.sprint = !!sprint; inp.stance = !!stance; inp.special = !!special; inp.tackle = !!tackle;
+    if (skip > 1) p._raw = { inp, n: 1 };
     return inp;
   }
 
   function fromExport(obj) {
     if (!obj || !obj.w || obj.kind !== 'raw2') return null;
-    return { sizes: obj.sizes, heads: obj.heads, w: Float32Array.from(obj.w) };
+    return { sizes: obj.sizes, heads: obj.heads, skip: obj.skip || 1, w: Float32Array.from(obj.w) };
   }
 
   return { think, fromExport };

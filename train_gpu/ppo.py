@@ -61,19 +61,23 @@ def acts_to_dict(a):
     return {name: a[..., i] for i, (name, _) in enumerate(HEADS)}
 
 
+SKIP = 1
+
+
 def export_js(pol, path, info):
     """exporta a política (sem a cabeça de valor) no formato lido por js/rawbot.js"""
     ws = []
     for lin in (pol.l1, pol.l2, pol.out):
         ws.append(lin.weight.detach().cpu().reshape(-1)); ws.append(lin.bias.detach().cpu())
     w = torch.cat(ws)
-    obj = {'kind': 'raw2', 'sizes': [FT.SIZE, HID, HID, NOUT], 'heads': [n for _, n in HEADS], 'obs': FT.SIZE, 'info': info,
+    obj = {'kind': 'raw2', 'sizes': [FT.SIZE, HID, HID, NOUT], 'heads': [n for _, n in HEADS], 'obs': FT.SIZE, 'info': info, 'skip': SKIP,
            'w': [round(float(v), 5) for v in w.tolist()]}
     with open(path, 'w', encoding='utf-8') as f:
         f.write("'use strict';\n// Pesos PPO (controle total) exportados por train_gpu/ppo.py. %s\nconst NN_RAW_WEIGHTS = %s;\n" % (info, json.dumps(obj)))
 
 
 def main():
+    global SKIP
     ap = argparse.ArgumentParser()
     ap.add_argument('--envs', type=int, default=1024); ap.add_argument('--iters', type=int, default=2000)
     ap.add_argument('--team', type=int, default=4); ap.add_argument('--seconds', type=float, default=90)
@@ -84,6 +88,9 @@ def main():
     ap.add_argument('--league_every', type=int, default=50); ap.add_argument('--league_frac', type=float, default=0.3)
     ap.add_argument('--resume', type=str, default=None); ap.add_argument('--seed', type=int, default=1)
     ap.add_argument('--export_every', type=int, default=25)
+    ap.add_argument('--skip', type=int, default=1)             # frame-skip: a política decide a cada N ticks e a ação é mantida
+    ap.add_argument('--shape_decay', type=int, default=0)      # iterações para o shaping denso decair linearmente até --shape_floor (0 = sem decaimento)
+    ap.add_argument('--shape_floor', type=float, default=0.3)
     ap.add_argument('--league_init', type=str, default=None)   # checkpoints congelados que ficam na liga o treino inteiro (benchmark), separados por vírgula
     ap.add_argument('--approach', type=float, default=0.02)   # shaping denso: aproximar-se da bola solta (currículo inicial)
     ap.add_argument('--sanity', action='store_true')
@@ -118,6 +125,7 @@ def main():
             league.append(snap.state_dict()); oppPols.append(snap); nFixed += 1
             print('liga: adversário fixo', path, 'iteração', ckl.get('it'))
     team1 = (sim.team == 1).view(1, P).expand(B, P)
+    SKIP = args.skip
     ckpt = args.ckpt or os.path.join(os.path.dirname(__file__), 'ckpt_sanity.pt' if (args.sanity or args.sanity2) else 'ckpt.pt')
     outjs = os.path.join(os.path.dirname(__file__), '..', 'js', 'nn_raw_weights.js')
     # estatísticas
@@ -133,6 +141,7 @@ def main():
     for it in range(it0 + 1, args.iters + 1):
         # ---- rollout ----
         R = args.rollout
+        shape = max(args.shape_floor, 1.0 - it / args.shape_decay) if args.shape_decay > 0 else 1.0
         obs_buf = torch.zeros(R, B, P, FT.SIZE, device=dev)
         act_buf = torch.zeros(R, B, P, len(HEADS), dtype=torch.long, device=dev)
         logp_buf = torch.zeros(R, B, P, device=dev); val_buf = torch.zeros(R, B, P, device=dev)
@@ -150,145 +159,151 @@ def main():
                             sel = team1[m]
                             a[m] = torch.where(sel.unsqueeze(-1), ao, a[m])
             inp = sim.act_from_discrete(acts_to_dict(a))
-            # progresso da bola antes do passo (referencial de cada time)
-            bx0 = sim.bpos[:, 0].clone()
-            playing = (sim.state == M_PLAY)
-            ev = sim.step(inp)
-            # ---- recompensas ----
-            rew = torch.zeros(B, P, device=dev)
-            dsc = (sim.score - prevScore).float()          # [B,2] gols neste passo
-            stat['goals'] += float(dsc.sum())
-            prevScore = sim.score.clone()
-            gteam = dsc[:, 0].view(B, 1) * (sim.team == 0).view(1, P).float() + dsc[:, 1].view(B, 1) * (sim.team == 1).view(1, P).float()
-            gopp = dsc[:, 1].view(B, 1) * (sim.team == 0).view(1, P).float() + dsc[:, 0].view(B, 1) * (sim.team == 1).view(1, P).float()
-            rew += 1.0 * gteam - 1.0 * gopp
-            # bola avançando no sentido do ataque (só durante o jogo, sem o reset do kickoff)
-            dbx = (sim.bpos[:, 0] - bx0).view(B, 1) * sim.dir.view(1, P) / CFG['FIELD_W']
-            dbx = torch.where(playing.view(B, 1), dbx.clamp(-0.05, 0.05), torch.zeros_like(dbx))
-            rew += 0.3 * dbx
-            if 'shot' in ev:
-                rew += 0.0 * ev['shot'].float()
-                # chute na direção do gol adversário (a trajetória reta cruza a boca do gol)
-                bv = sim.bvel; bp = sim.bpos
-                vx = bv[:, 0].view(B, 1) * sim.dir.view(1, P)
-                tcross = (W2 - bp[:, 0].view(B, 1) * sim.dir.view(1, P)) / vx.clamp(min=1e-3)
-                ycross = bp[:, 1].view(B, 1) + bv[:, 1].view(B, 1) * tcross
-                onT = ev['shot'] & (vx > 100) & (tcross > 0) & (ycross.abs() < CFG['GOAL_W'] / 2)
-                rew += 0.04 * onT.float()
-                # defesa: chute adversário na direção do gol foi permitido -> penalidade coletiva do time que defende
-                onTb = onT.any(dim=1)
-                shooterTeam = torch.where(onTb, sim.team[onT.float().argmax(dim=1)], torch.full_like(sim.lastTeam, -1))
-                rew -= 0.04 * ((shooterTeam.view(B, 1) >= 0) & (sim.team.view(1, P) != shooterTeam.view(B, 1))).float()
-                # registra o time do último chute/passe (para interceptações)
-                kb = ev['shot'].any(dim=1)
-                lastKickTeam = torch.where(kb, sim.team[ev['shot'].float().argmax(dim=1)], lastKickTeam)
-                lastKickTick = torch.where(kb, torch.full_like(lastKickTick, float(tick)), lastKickTick)
-            # aproximação da bola: só o companheiro mais próximo de cada time é recompensado por se aproximar
-            dist = (sim.pos - sim.bpos.view(B, 1, 2)).norm(dim=-1)
-            closest = torch.zeros(B, P, dtype=torch.bool, device=dev)
-            for tteam in (0, 1):
-                tm = (sim.team == tteam).view(1, P).expand(B, P)
-                dd = torch.where(tm, dist, torch.full_like(dist, 1e9))
-                closest[torch.arange(B, device=dev), dd.argmin(dim=1)] = True
-            approach = ((prevDist - dist) / 100).clamp(-0.05, 0.05)
-            rew += torch.where(closest & playing.view(B, 1) & (sim.owner < 0).view(B, 1), args.approach * approach, torch.zeros_like(approach))
-            prevDist = dist
-            if args.sanity: rew = ((prevDist - dist) / 100).clamp(-0.05, 0.05) * 0 + (-dist / 1000) * 0.01
-            if args.sanity2: rew = (a[..., 0] == 1).float() * 0.1   # recompensa por escolher mover na direção 1
-            if 'control' in ev:
-                rew += 0.01 * ev['control'].float()
-                # interceptação: dominar até 2 s após chute/passe do adversário
-                recentK = (tick - lastKickTick) < 2.0 / DT
-                inter = ev['control'] & recentK.view(B, 1) & (lastKickTeam.view(B, 1) >= 0) & (sim.team.view(1, P) != lastKickTeam.view(B, 1))
-                rew += 0.08 * inter.float()
-            if 'first' in ev: rew += 0.01 * ev['first'].float()
-            if 'pass' in ev:
-                rew += 0.01 * ev['pass'].float()
-                kb = ev['pass'].any(dim=1)
-                lastKickTeam = torch.where(kb, sim.team[ev['pass'].float().argmax(dim=1)], lastKickTeam)
-                lastKickTick = torch.where(kb, torch.full_like(lastKickTick, float(tick)), lastKickTick)
-            # passe completado: companheiro (outro jogador) domina até 2,5 s depois -> passador e receptor
-            tick += 1
-            if 'pass' in ev and ev['pass'].any():
-                pb = ev['pass'].any(dim=1)
-                passTick = torch.where(pb, torch.full_like(passTick, float(tick)), passTick)
-                passer = torch.where(pb, ev['pass'].float().argmax(dim=1), passer)
-            if 'control' in ev or 'first' in ev:
-                ctrl = (ev.get('control', torch.zeros(B, P, dtype=torch.bool, device=dev)) | ev.get('first', torch.zeros(B, P, dtype=torch.bool, device=dev)))
-                recent = (tick - passTick) < 2.5 / DT
-                sameTeam = sim.team.view(1, P) == sim.team[passer].view(B, 1)
-                notSelf = torch.arange(P, device=dev).view(1, P) != passer.view(B, 1)
-                done_pass = ctrl & recent.view(B, 1) & sameTeam & notSelf
-                if done_pass.any():
-                    # passe completado: 0,15 para receptor e passador; +0,05 se avançou a bola
-                    fwd = ((sim.pos[..., 0] - sim.pos[torch.arange(B, device=dev), passer][:, 0].view(B, 1)) * sim.dir.view(1, P) > 150).float()
-                    rew += (0.15 + 0.05 * fwd) * done_pass.float()
-                    rew[torch.arange(B, device=dev)[done_pass.any(dim=1)], passer[done_pass.any(dim=1)]] += 0.15
-                    stat['passOk'] += float(done_pass.sum())
-                    passTick = torch.where(done_pass.any(dim=1), torch.full_like(passTick, -1e9), passTick)
-            if 'steal' in ev: rew += 0.10 * ev['steal'].float()
-            if 'save' in ev: rew += 0.10 * ev['save'].float()
-            # posse: pequeno bônus por tick para o time com a bola (compartilhado)
-            has = sim.owner >= 0
-            oteam = torch.where(has, sim.team[sim.owner.clamp(min=0)], torch.full_like(sim.owner, -1))
-            poss = (oteam.view(B, 1) == sim.team.view(1, P)).float()
-            rew += 0.002 * poss
-            # enrolar: mesmo time com a bola por mais de 4 s seguidos -> penalidade crescente
-            possStreak = torch.where(has, possStreak + 1, torch.zeros_like(possStreak))
-            stall = (possStreak > 4 / DT).float().view(B, 1) * poss
-            rew -= 0.003 * stall
-            # com a bola: espaçamento entre companheiros de linha (média das distâncias, cap 500) e aglomeração
-            fieldm = (~sim.isKeeper).float()
-            dpp = (sim.pos.view(B, P, 1, 2) - sim.pos.view(B, 1, P, 2)).norm(dim=-1).clamp(max=500)
-            sameT = (sim.team.view(1, P, 1) == sim.team.view(1, 1, P)) & ~torch.eye(P, dtype=torch.bool, device=dev).view(1, P, P)
-            wgt = sameT.float() * fieldm.view(B, 1, P)
-            spread = (dpp * wgt).sum(-1) / wgt.sum(-1).clamp(min=1) / 500
-            # espaçamento SEMPRE (com e sem a bola): média das distâncias entre companheiros de linha
-            rew += 0.004 * spread * fieldm
-            # companheiros de linha colados (< 100 px): penalidade por par
-            close = ((dpp < 100) & sameT).float() * fieldm.view(B, 1, P) * fieldm.view(B, P, 1)
-            rew -= 0.003 * close.sum(-1)
-            # três ou mais do mesmo time em cima da bola, em qualquer fase
-            near = ((sim.pos - sim.bpos.view(B, 1, 2)).norm(dim=-1) < 150).float() * fieldm
-            crowd = torch.zeros(B, P, device=dev)
-            for tteam in (0, 1):
-                tm = (sim.team == tteam).view(1, P).float()
-                crowd += ((near * tm).sum(dim=1, keepdim=True) >= 3).float() * tm
-            rew -= 0.006 * crowd
-            # goleiro: fica na área (penalidade fora dela com a bola no próprio campo; bônus dentro);
-            # jogadores de linha não entram na própria área quando há goleiro
-            gk = sim.isKeeper.float()
-            inBoxP = sim.in_own_box().float()
-            ballOwnHalf = torch.where(sim.team.view(1, P) == 0, sim.bpos[:, 0].view(B, 1) < 0, sim.bpos[:, 0].view(B, 1) > 0).float()
-            oppHasBall = ((oteam.view(B, 1) >= 0) & (oteam.view(B, 1) != sim.team.view(1, P))).float()
-            rew -= 0.004 * gk * (1 - inBoxP) * ballOwnHalf * oppHasBall   # só quando o adversário ataca
-            rew += 0.001 * gk * inBoxP
-            teamHasGk = torch.zeros(B, P, device=dev)
-            for tteam in (0, 1):
-                tm = (sim.team == tteam).view(1, P).float()
-                teamHasGk += ((gk * tm).sum(dim=1, keepdim=True) > 0).float() * tm
-            rew -= 0.003 * (1 - gk) * inBoxP * teamHasGk
-            # controle de campo: cada jogador de linha ganha pela própria fatia (Voronoi) acima da média
-            cnt, _, _ = FT.pitch_control(sim)
-            share = cnt / (FT.GX * FT.GY)
-            rew += 0.02 * (share - 1.0 / P) * fieldm
-            # partida terminou (tempo) -> episódio acaba; reinicia essas partidas
-            done = (sim.state == 3)
-            if done.any():
-                idx = done.nonzero().squeeze(1)
-                stat['matches'] += float(idx.numel())
-                sim.time[idx] = sim.seconds; sim.score[idx] = 0; prevScore[idx] = 0
-                sim.stamina[idx] = CFG['STAMINA_MAX']; sim.effortBar[idx] = 1; sim.exhausted[idx] = False
-                sim.kickoffTeam[idx] = (torch.rand(idx.numel(), device=dev) < 0.5).long()
-                sim.kickoff(idx)
-                # sorteia oponentes da liga para essas partidas
-                if league:
-                    use = torch.rand(idx.numel(), device=dev) < args.league_frac
-                    leagueEnv[idx] = use
-                    leagueIdx[idx] = torch.randint(0, len(league), (idx.numel(),), device=dev)
-            for k in ('shot', 'control', 'pass'):
-                if k in ev: stat['shots' if k == 'shot' else ('control' if k == 'control' else 'passes')] += float(ev[k].sum())
-            stat['steps'] += 1
+            rewT = torch.zeros(B, P, device=dev); doneT = torch.zeros(B, dtype=torch.bool, device=dev)
+            for _k in range(args.skip):
+                # progresso da bola antes do passo (referencial de cada time)
+                bx0 = sim.bpos[:, 0].clone()
+                playing = (sim.state == M_PLAY)
+                ev = sim.step(inp)
+                # ---- recompensas ----
+                rew = torch.zeros(B, P, device=dev)
+                dsc = (sim.score - prevScore).float()          # [B,2] gols neste passo
+                stat['goals'] += float(dsc.sum())
+                prevScore = sim.score.clone()
+                gteam = dsc[:, 0].view(B, 1) * (sim.team == 0).view(1, P).float() + dsc[:, 1].view(B, 1) * (sim.team == 1).view(1, P).float()
+                gopp = dsc[:, 1].view(B, 1) * (sim.team == 0).view(1, P).float() + dsc[:, 0].view(B, 1) * (sim.team == 1).view(1, P).float()
+                rew += 1.0 * gteam - 1.0 * gopp
+                goalTerm = 1.0 * gteam - 1.0 * gopp
+                # bola avançando no sentido do ataque (só durante o jogo, sem o reset do kickoff)
+                dbx = (sim.bpos[:, 0] - bx0).view(B, 1) * sim.dir.view(1, P) / CFG['FIELD_W']
+                dbx = torch.where(playing.view(B, 1), dbx.clamp(-0.05, 0.05), torch.zeros_like(dbx))
+                rew += 0.3 * dbx
+                if 'shot' in ev:
+                    rew += 0.0 * ev['shot'].float()
+                    # chute na direção do gol adversário (a trajetória reta cruza a boca do gol)
+                    bv = sim.bvel; bp = sim.bpos
+                    vx = bv[:, 0].view(B, 1) * sim.dir.view(1, P)
+                    tcross = (W2 - bp[:, 0].view(B, 1) * sim.dir.view(1, P)) / vx.clamp(min=1e-3)
+                    ycross = bp[:, 1].view(B, 1) + bv[:, 1].view(B, 1) * tcross
+                    onT = ev['shot'] & (vx > 100) & (tcross > 0) & (ycross.abs() < CFG['GOAL_W'] / 2)
+                    rew += 0.04 * onT.float()
+                    # defesa: chute adversário na direção do gol foi permitido -> penalidade coletiva do time que defende
+                    onTb = onT.any(dim=1)
+                    shooterTeam = torch.where(onTb, sim.team[onT.float().argmax(dim=1)], torch.full_like(sim.lastTeam, -1))
+                    rew -= 0.04 * ((shooterTeam.view(B, 1) >= 0) & (sim.team.view(1, P) != shooterTeam.view(B, 1))).float()
+                    # registra o time do último chute/passe (para interceptações)
+                    kb = ev['shot'].any(dim=1)
+                    lastKickTeam = torch.where(kb, sim.team[ev['shot'].float().argmax(dim=1)], lastKickTeam)
+                    lastKickTick = torch.where(kb, torch.full_like(lastKickTick, float(tick)), lastKickTick)
+                # aproximação da bola: só o companheiro mais próximo de cada time é recompensado por se aproximar
+                dist = (sim.pos - sim.bpos.view(B, 1, 2)).norm(dim=-1)
+                closest = torch.zeros(B, P, dtype=torch.bool, device=dev)
+                for tteam in (0, 1):
+                    tm = (sim.team == tteam).view(1, P).expand(B, P)
+                    dd = torch.where(tm, dist, torch.full_like(dist, 1e9))
+                    closest[torch.arange(B, device=dev), dd.argmin(dim=1)] = True
+                approach = ((prevDist - dist) / 100).clamp(-0.05, 0.05)
+                rew += torch.where(closest & playing.view(B, 1) & (sim.owner < 0).view(B, 1), args.approach * approach, torch.zeros_like(approach))
+                prevDist = dist
+                if args.sanity: rew = ((prevDist - dist) / 100).clamp(-0.05, 0.05) * 0 + (-dist / 1000) * 0.01
+                if args.sanity2: rew = (a[..., 0] == 1).float() * 0.1   # recompensa por escolher mover na direção 1
+                if 'control' in ev:
+                    rew += 0.01 * ev['control'].float()
+                    # interceptação: dominar até 2 s após chute/passe do adversário
+                    recentK = (tick - lastKickTick) < 2.0 / DT
+                    inter = ev['control'] & recentK.view(B, 1) & (lastKickTeam.view(B, 1) >= 0) & (sim.team.view(1, P) != lastKickTeam.view(B, 1))
+                    rew += 0.08 * inter.float()
+                if 'first' in ev: rew += 0.01 * ev['first'].float()
+                if 'pass' in ev:
+                    rew += 0.01 * ev['pass'].float()
+                    kb = ev['pass'].any(dim=1)
+                    lastKickTeam = torch.where(kb, sim.team[ev['pass'].float().argmax(dim=1)], lastKickTeam)
+                    lastKickTick = torch.where(kb, torch.full_like(lastKickTick, float(tick)), lastKickTick)
+                # passe completado: companheiro (outro jogador) domina até 2,5 s depois -> passador e receptor
+                tick += 1
+                if 'pass' in ev and ev['pass'].any():
+                    pb = ev['pass'].any(dim=1)
+                    passTick = torch.where(pb, torch.full_like(passTick, float(tick)), passTick)
+                    passer = torch.where(pb, ev['pass'].float().argmax(dim=1), passer)
+                if 'control' in ev or 'first' in ev:
+                    ctrl = (ev.get('control', torch.zeros(B, P, dtype=torch.bool, device=dev)) | ev.get('first', torch.zeros(B, P, dtype=torch.bool, device=dev)))
+                    recent = (tick - passTick) < 2.5 / DT
+                    sameTeam = sim.team.view(1, P) == sim.team[passer].view(B, 1)
+                    notSelf = torch.arange(P, device=dev).view(1, P) != passer.view(B, 1)
+                    done_pass = ctrl & recent.view(B, 1) & sameTeam & notSelf
+                    if done_pass.any():
+                        # passe completado: 0,15 para receptor e passador; +0,05 se avançou a bola
+                        fwd = ((sim.pos[..., 0] - sim.pos[torch.arange(B, device=dev), passer][:, 0].view(B, 1)) * sim.dir.view(1, P) > 150).float()
+                        rew += (0.15 + 0.05 * fwd) * done_pass.float()
+                        rew[torch.arange(B, device=dev)[done_pass.any(dim=1)], passer[done_pass.any(dim=1)]] += 0.15
+                        stat['passOk'] += float(done_pass.sum())
+                        passTick = torch.where(done_pass.any(dim=1), torch.full_like(passTick, -1e9), passTick)
+                if 'steal' in ev: rew += 0.10 * ev['steal'].float()
+                if 'save' in ev: rew += 0.10 * ev['save'].float()
+                # posse: pequeno bônus por tick para o time com a bola (compartilhado)
+                has = sim.owner >= 0
+                oteam = torch.where(has, sim.team[sim.owner.clamp(min=0)], torch.full_like(sim.owner, -1))
+                poss = (oteam.view(B, 1) == sim.team.view(1, P)).float()
+                rew += 0.002 * poss
+                # enrolar: mesmo time com a bola por mais de 4 s seguidos -> penalidade crescente
+                possStreak = torch.where(has, possStreak + 1, torch.zeros_like(possStreak))
+                stall = (possStreak > 4 / DT).float().view(B, 1) * poss
+                rew -= 0.003 * stall
+                # com a bola: espaçamento entre companheiros de linha (média das distâncias, cap 500) e aglomeração
+                fieldm = (~sim.isKeeper).float()
+                dpp = (sim.pos.view(B, P, 1, 2) - sim.pos.view(B, 1, P, 2)).norm(dim=-1).clamp(max=500)
+                sameT = (sim.team.view(1, P, 1) == sim.team.view(1, 1, P)) & ~torch.eye(P, dtype=torch.bool, device=dev).view(1, P, P)
+                wgt = sameT.float() * fieldm.view(B, 1, P)
+                spread = (dpp * wgt).sum(-1) / wgt.sum(-1).clamp(min=1) / 500
+                # espaçamento SEMPRE (com e sem a bola): média das distâncias entre companheiros de linha
+                rew += 0.004 * spread * fieldm
+                # companheiros de linha colados (< 100 px): penalidade por par
+                close = ((dpp < 100) & sameT).float() * fieldm.view(B, 1, P) * fieldm.view(B, P, 1)
+                rew -= 0.003 * close.sum(-1)
+                # três ou mais do mesmo time em cima da bola, em qualquer fase
+                near = ((sim.pos - sim.bpos.view(B, 1, 2)).norm(dim=-1) < 150).float() * fieldm
+                crowd = torch.zeros(B, P, device=dev)
+                for tteam in (0, 1):
+                    tm = (sim.team == tteam).view(1, P).float()
+                    crowd += ((near * tm).sum(dim=1, keepdim=True) >= 3).float() * tm
+                rew -= 0.006 * crowd
+                # goleiro: fica na área (penalidade fora dela com a bola no próprio campo; bônus dentro);
+                # jogadores de linha não entram na própria área quando há goleiro
+                gk = sim.isKeeper.float()
+                inBoxP = sim.in_own_box().float()
+                ballOwnHalf = torch.where(sim.team.view(1, P) == 0, sim.bpos[:, 0].view(B, 1) < 0, sim.bpos[:, 0].view(B, 1) > 0).float()
+                oppHasBall = ((oteam.view(B, 1) >= 0) & (oteam.view(B, 1) != sim.team.view(1, P))).float()
+                rew -= 0.004 * gk * (1 - inBoxP) * ballOwnHalf * oppHasBall   # só quando o adversário ataca
+                rew += 0.001 * gk * inBoxP
+                teamHasGk = torch.zeros(B, P, device=dev)
+                for tteam in (0, 1):
+                    tm = (sim.team == tteam).view(1, P).float()
+                    teamHasGk += ((gk * tm).sum(dim=1, keepdim=True) > 0).float() * tm
+                rew -= 0.003 * (1 - gk) * inBoxP * teamHasGk
+                # controle de campo: cada jogador de linha ganha pela própria fatia (Voronoi) acima da média
+                cnt, _, _ = FT.pitch_control(sim)
+                share = cnt / (FT.GX * FT.GY)
+                rew += 0.02 * (share - 1.0 / P) * fieldm
+                rew = goalTerm + shape * (rew - goalTerm)   # shaping denso com decaimento; gols nunca decaem
+                # partida terminou (tempo) -> episódio acaba; reinicia essas partidas
+                done = (sim.state == 3)
+                if done.any():
+                    idx = done.nonzero().squeeze(1)
+                    stat['matches'] += float(idx.numel())
+                    sim.time[idx] = sim.seconds; sim.score[idx] = 0; prevScore[idx] = 0
+                    sim.stamina[idx] = CFG['STAMINA_MAX']; sim.effortBar[idx] = 1; sim.exhausted[idx] = False
+                    sim.kickoffTeam[idx] = (torch.rand(idx.numel(), device=dev) < 0.5).long()
+                    sim.kickoff(idx)
+                    # sorteia oponentes da liga para essas partidas
+                    if league:
+                        use = torch.rand(idx.numel(), device=dev) < args.league_frac
+                        leagueEnv[idx] = use
+                        leagueIdx[idx] = torch.randint(0, len(league), (idx.numel(),), device=dev)
+                for k in ('shot', 'control', 'pass'):
+                    if k in ev: stat['shots' if k == 'shot' else ('control' if k == 'control' else 'passes')] += float(ev[k].sum())
+                stat['steps'] += 1
+                rewT += rew; doneT |= done
+            rew = rewT; done = doneT
             obs_buf[r] = obs; act_buf[r] = a; logp_buf[r] = logp; val_buf[r] = v; rew_buf[r] = rew; done_buf[r] = done.float()
             obs = FT.build(sim)
         # ---- GAE ----
