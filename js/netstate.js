@@ -60,7 +60,7 @@ const NetState = (() => {
 
   // avança posições entre snapshots para o desenho ficar suave
   function extrapolate(game, dt) {
-    for (const p of game.players) if (p.active) p.pos = V.add(p.pos, V.mul(p.vel, dt));
+    for (const p of game.players) if (p.active) { p.pos = V.add(p.pos, V.mul(p.vel, dt)); p.reach = null; }
     const b = game.ball;
     b.pos = V.add(b.pos, V.mul(b.vel, dt));
     b.rot += V.len(b.vel) * dt / b.r;

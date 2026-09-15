@@ -240,7 +240,7 @@ class Renderer {
     ctx.save();
     // alvo (Rematch): losango azul quando a bola solta está ao alcance; verde quando a
     // sua ação está travada nela; vermelho se outro jogador tem a prioridade
-    if (human && !b.owner && game.ballInZone(human)) {
+    if (human && !b.owner && (human.reach || game.ballInZone(human))) {
       const mine = human.queued && b.lock === human;
       const taken = b.lock && b.lock !== human;
       const glow = ctx.createRadialGradient(b.pos.x, b.pos.y, b.r, b.pos.x, b.pos.y, b.r + 18);

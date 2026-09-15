@@ -133,11 +133,33 @@ class Game {
   hasBall(p) { return this.ball.owner === p && !p.held; }
   // raio do corpo em relação à bola: menor sem postura defensiva, maior com ela
   ballHitbox(p) { return p.stance === 'def' ? p.r + CFG.GRAB_MARGIN_DEF : p.r * CFG.HITBOX_MUL + CFG.GRAB_MARGIN; }
-  // bola solta perto o bastante para agir de primeira (zona de ação)
-  ballInZone(p) {
-    const b = this.ball;
-    return !b.owner && V.dist(p.pos, b.pos) < p.r + b.r + CFG.ACTION_RADIUS;
+  // velocidade máxima que o jogador tem agora, sem bola (usada pelo snap)
+  snapCap(p) {
+    let cap = p.sprinting ? CFG.SPRINT : CFG.SPEED;
+    if (p.effortT > 0) cap = CFG.SPRINT * CFG.EXTRA_EFFORT;
+    if (p.exhausted && p.effortT <= 0) cap *= CFG.MUL_EXHAUSTED;
+    if (p.recover > 0) cap *= CFG.MUL_RECOVER;
+    return Math.min(cap, CFG.LOCK_SNAP_SPEED);
   }
+
+  // Alvo (Rematch): a ação só é oferecida se for realizável. Prevê a bola solta
+  // dentro da janela da trava e devolve o primeiro ponto que o jogador alcança
+  // na velocidade que tem agora ({t, point}), ou null.
+  reachInfo(p) {
+    const b = this.ball;
+    if (b.owner || !p.active) return null;
+    if (V.dist(p.pos, b.pos) >= p.r + b.r + CFG.ACTION_RADIUS) return null;
+    const reach = this.ballHitbox(p) + b.r;
+    const cap = this.snapCap(p);
+    const s = { pos: { x: b.pos.x, y: b.pos.y }, vel: { x: b.vel.x, y: b.vel.y }, spin: b.spin, r: b.r };
+    const dt = 1 / 30;
+    for (let t = 0; t <= CFG.LOCK_MAX + 1e-6; t += dt) {
+      if (V.dist(p.pos, s.pos) - reach <= cap * t) return { t, point: { x: s.pos.x, y: s.pos.y } };
+      Game.integrateFree(s, dt);
+    }
+    return null;
+  }
+  ballInZone(p) { return this.reachInfo(p) !== null; }
 
   // ---------- passo ----------
   step(dt) {
@@ -204,6 +226,7 @@ class Game {
 
     // postura (Ctrl): drible com bola, defensiva sem bola
     p.stance = inp.stance ? (hasBall ? 'drib' : 'def') : 'none';
+    p.reach = this.reachInfo(p);   // alvo realizável nesta bola (null se não há)
 
     // sprint e extra effort (Shift duas vezes)
     if (inp.sprint && !prev.sprint) {
@@ -263,7 +286,7 @@ class Game {
     const released = (k) => !inp[k] && prev[k];
     const ball = this.ball;
     const canKick = hasBall || held;
-    const inZone = this.ballInZone(p);
+    const inZone = p.reach !== null;
     // botão "armado": apertou e ainda não usou; soltar desarma. Permite pré-carregar
     // antes da bola entrar na zona de ação.
     for (const k of ['shoot', 'pass']) {
@@ -365,15 +388,14 @@ class Game {
     if (p.exhausted && p.effortT <= 0) base *= CFG.MUL_EXHAUSTED;
     let desired = { x: inp.mx * base, y: inp.my * base };
     if (p.queued) {
-      // ação travada: "snap" em direção à bola, limitado à velocidade que o
-      // jogador teria agora sem bola (andar, ou sprint se está segurando Shift com
-      // stamina; exausto continua lento). Encadear toques nunca supera correr.
-      const toBall = V.norm(V.sub(this.ball.pos, p.pos));
-      let cap = p.sprinting ? CFG.SPRINT : CFG.SPEED;
-      if (p.effortT > 0) cap = CFG.SPRINT * CFG.EXTRA_EFFORT;
-      if (p.exhausted && p.effortT <= 0) cap *= CFG.MUL_EXHAUSTED;
-      if (p.recover > 0) cap *= CFG.MUL_RECOVER;
-      desired = V.mul(toBall, Math.min(CFG.LOCK_SNAP_SPEED, cap));
+      // ação travada: "snap" até o ponto onde a bola vai estar, limitado à
+      // velocidade que o jogador teria agora sem bola (andar, ou sprint se está
+      // segurando Shift com stamina; exausto continua lento). Encadear toques
+      // nunca supera correr.
+      const target = p.reach ? p.reach.point : this.ball.pos;
+      const to = V.sub(target, p.pos);
+      p.vel = V.len(to) > 2 ? V.mul(V.norm(to), this.snapCap(p)) : { x: 0, y: 0 };   // sem rampa: o snap é imediato
+      return;
     }
     const diff = V.sub(desired, p.vel);
     const dl = V.len(diff);
@@ -591,7 +613,7 @@ class Game {
   resolveLocks() {
     const b = this.ball;
     if (b.owner) { b.lock = null; return; }
-    const cands = this.players.filter((p) => p.active && p.queued && this.ballInZone(p));
+    const cands = this.players.filter((p) => p.active && p.queued && p.reach !== null);
     if (!cands.length) { b.lock = null; return; }
     let best = null, bs = Infinity;
     for (const p of cands) {
@@ -699,6 +721,7 @@ class Game {
 
   updateBall(dt) {
     const b = this.ball;
+    b.prevPos = { x: b.pos.x, y: b.pos.y };
     const o = b.owner;
     if (o) {
       if (o.held) {
@@ -782,8 +805,14 @@ class Game {
       const canGrab = free && (!p.action || p.action.type === 'dash');
       const hb = this.ballHitbox(p);
       const R = hb + b.r;
+      // toque de primeira travado: dispara no contato (usando o trajeto da bola no
+      // tick, para bola rápida não pular a hitbox), mesmo no cooldown pós-chute
+      // (no Rematch, apertar de novo logo após um toque dá um toque maior)
+      if (p.queued && p.fallen <= 0 && p.getup <= 0 && (!p.action || p.action.type === 'dash')) {
+        const dseg = b.prevPos ? V.segDist(p.pos, b.prevPos, b.pos) : d;
+        if (dseg < R) { this.fireQueued(p); continue; }
+      }
       if (d >= R) continue;
-      if (canGrab && p.queued) { this.fireQueued(p); continue; }   // toque de primeira
       const speed = V.len(b.vel);
       // outro jogador travou a ação nessa bola: este não domina, só desvia fisicamente
       if (b.lock && b.lock !== p) {

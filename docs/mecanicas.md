@@ -62,7 +62,9 @@ maior; goleiro dentro da área pega qualquer bola.
 - Ou seja, a ação é garantida para quem tem a prioridade; quem perde a disputa
   tem a ação cancelada.
 
-**2D:** bola solta a até `ACTION_RADIUS` do corpo mostra o losango; LMB/RMB/Espaço
+**2D:** o losango só aparece se a ação é realizável: a bola solta está a até
+`ACTION_RADIUS` do corpo E, prevendo a trajetória dela, o jogador consegue chegar
+nela dentro da janela da trava na velocidade que tem agora. LMB/RMB/Espaço
 travam a ação (chute continua carregando enquanto o botão está segurado). Chute e
 passe (botões segurados) podem ser pré-carregados antes de a bola entrar no
 alcance: travam no instante em que ela entra; o push (Espaço) é um toque e precisa
