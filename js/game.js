@@ -250,6 +250,10 @@ class Game {
 
     const incapacitated = p.fallen > 0 || p.getup > 0;
     if (p.action) {
+      // 2º toque dado durante o 1º drible (com Ctrl): fica bufferizado e sai no fim
+      if (p.action.type === 'dribble' && !p.action.second && inp.special && !prev.special && inp.stance) {
+        p.action.bufferedDir = p.moving ? p.moveDir : this.lungeDir(p);
+      }
       this.runAction(p, dt);
     } else if (incapacitated) {
       p.vel = V.mul(p.vel, Math.max(0, 1 - 8 * dt));
@@ -360,7 +364,11 @@ class Game {
       if (held && pressed('throwBall')) { this.throwBall(p); return; }
       if (pressed('special')) {
         if (held) { p.held = false; p.holdT = 0; return; }                     // solta e conduz
-        if (p.dribbleLag > 0) { p.dribbleLag = 0; this.push(p, p.sprinting); return; }   // push cancela o lag do 2º drible
+        if (p.dribbleLag > 0) {
+          // lag do 2º drible: só o push normal (Espaço sem Ctrl) cancela
+          if (p.stance !== 'drib') { p.dribbleLag = 0; this.push(p, p.sprinting); }
+          return;
+        }
         if (p.stance === 'drib') {
           const chain = p.dribbleN === 1 && p.dribbleChainT > 0;
           if ((chain || p.cd.dribble <= 0) && p.stamina >= CFG.COST_DRIBBLE * 0.5) this.startDribble(p);
@@ -470,7 +478,10 @@ class Game {
       case 'tackle': if (!a.hit) p.recover = CFG.TACKLE_MISS_RECOVER; break;
       case 'dribble':
         if (a.second) { p.dribbleN = 0; p.dribbleLag = CFG.DRIBBLE_LAG; p.cd.dribble = CFG.DRIBBLE_CD; }
-        else p.dribbleChainT = CFG.DRIBBLE_CHAIN_WINDOW;
+        else {
+          p.dribbleChainT = CFG.DRIBBLE_CHAIN_WINDOW;
+          if (a.bufferedDir && this.hasBall(p)) { p.moveDir = a.bufferedDir; p.moving = true; this.startDribble(p); }
+        }
         break;
       case 'slide':
         if (a.hit || a.body) p.getup = CFG.SLIDE_RECOVER;

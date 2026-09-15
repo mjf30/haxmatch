@@ -60,7 +60,7 @@ const CFG = {
   // ---- dash (postura defensiva) e drible (postura de drible) ----
   DASH_DUR: 0.16, DASH_MUL: 2.6, DASH_CD: 0.6,
   DRIBBLE_DUR: 0.14, DRIBBLE_MUL: 2.3,                      // drible na postura: passo curto
-  DRIBBLE_CHAIN_WINDOW: 0.3,        // após o 1º drible, tempo para encadear o 2º ("roleta")
+  DRIBBLE_CHAIN_WINDOW: 0.45,       // após o 1º drible, tempo para encadear o 2º ("roleta"); toque durante o 1º fica bufferizado
   DRIBBLE_LAG: 0.55,                // lag após o 2º drible (cancelável com chute, passe ou push)
   DRIBBLE_LAG_MUL: 0.35,            // velocidade durante o lag
   DRIBBLE_CD: 1.5, DRIBBLE_CD_SINGLE: 0.9,   // cooldown após a sequência de 2 / após um drible só
