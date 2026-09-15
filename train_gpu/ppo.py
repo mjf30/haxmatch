@@ -23,6 +23,25 @@ HID = 256
 
 
 MACRO_HEADS = [('macro', len(AT.MACROS))]
+# índices na observação (features_torch): goleiro, bola no pé, bola na mão, alvo de primeira (reach)
+OBS_KEEPER, OBS_HASBALL, OBS_HELD, OBS_REACH = 17, 18, 19, FT.SELF + 10
+OFFBALL_SET = [AT.M[k] for k in ('chase', 'defend', 'cover', 'cutlane', 'openfwd', 'openwide', 'overlap', 'runbox', 'runspace', 'openback', 'openbest', 'guardgoal', 'home')]
+KICK_NOSHOOT = [m for m in AT.KICK_SET if m != AT.M['shoot']]
+
+
+def macro_mask(obs):
+    """macros válidas por situação (as outras seriam convertidas pela execução, ex. 'runspace' com a bola = conduzir):
+    com a bola: as 10 do portador; sem a bola: as 13 de linha (goleiro: as 5 gk_*), mais as de chute/passe de primeira quando há alvo."""
+    n = len(AT.MACROS)
+    keeper = obs[..., OBS_KEEPER] > 0.5
+    ball = (obs[..., OBS_HASBALL] > 0.5) | (obs[..., OBS_HELD] > 0.5)
+    reach = obs[..., OBS_REACH] > 0.5
+    def setmask(idxs):
+        m = torch.zeros(n, dtype=torch.bool, device=obs.device); m[idxs] = True; return m
+    car, off, gk, kick, kickNS = setmask(AT.CARRIER_SET), setmask(OFFBALL_SET), setmask(AT.GK_SET), setmask(AT.KICK_SET), setmask(KICK_NOSHOOT)
+    base = torch.where(keeper.unsqueeze(-1), gk, off)
+    base = base | (reach.unsqueeze(-1) & torch.where(keeper.unsqueeze(-1), kickNS, kick))
+    return torch.where(ball.unsqueeze(-1), car, base)
 
 
 class Policy(nn.Module):
@@ -53,6 +72,8 @@ class Policy(nn.Module):
 
     def dists(self, x):
         lg = self.logits(x)
+        if self.kind == 'macro':
+            lg = torch.where(macro_mask(x), lg, torch.full_like(lg, -1e9))
         out, k = [], 0
         for _, n in self.heads:
             out.append(torch.distributions.Categorical(logits=lg[..., k:k + n])); k += n
@@ -100,7 +121,7 @@ def export_js(pol, path, info):
                'w': [round(float(v), 5) for v in w.tolist()]}
         head = "'use strict';\n// Pesos PPO (controle total) exportados por train_gpu/ppo.py. %s\nconst NN_RAW_WEIGHTS = %s;\n"
     else:
-        obj = {'kind': 'macro', 'sizes': [FT.SIZE] + [pol.hid] * pol.depth + [pol.nout], 'obs': FT.SIZE, 'info': info, 'skip': SKIP,
+        obj = {'kind': 'macro', 'sizes': [FT.SIZE] + [pol.hid] * pol.depth + [pol.nout], 'obs': FT.SIZE, 'info': info, 'skip': SKIP, 'mask': True,
                'w': [round(float(v), 5) for v in w.tolist()]}
         head = "'use strict';\n// Pesos PPO híbrido (decisão tática; execução do script) exportados por train_gpu/ppo.py. %s\nconst NN_WEIGHTS = %s;\n"
     with open(path, 'w', encoding='utf-8') as f:
@@ -265,7 +286,10 @@ def main():
                     tcross = (W2 - bp[:, 0].view(B, 1) * sim.dir.view(1, P)) / vx.clamp(min=1e-3)
                     ycross = bp[:, 1].view(B, 1) + bv[:, 1].view(B, 1) * tcross
                     onT = ev['shot'] & (vx > 100) & (tcross > 0) & (ycross.abs() < CFG['GOAL_W'] / 2)
-                    rew += 0.04 * onT.float()
+                    goalP = torch.stack([sim.dir.view(1, P).expand(B, P) * W2, torch.zeros(B, P, device=dev)], -1)
+                    dShot = (sim.pos - goalP).norm(dim=-1)
+                    nearF = (1 - (dShot - 500) / 500).clamp(0, 1)   # chute no alvo vale cheio até 500 px, nada além de 1000
+                    rew += 0.04 * onT.float() * nearF
                     # defesa: chute adversário na direção do gol foi permitido -> penalidade coletiva do time que defende
                     onTb = onT.any(dim=1)
                     shooterTeam = torch.where(onTb, sim.team[onT.float().argmax(dim=1)], torch.full_like(sim.lastTeam, -1))
@@ -323,7 +347,7 @@ def main():
                 has = sim.owner >= 0
                 oteam = torch.where(has, sim.team[sim.owner.clamp(min=0)], torch.full_like(sim.owner, -1))
                 poss = (oteam.view(B, 1) == sim.team.view(1, P)).float()
-                rew += 0.002 * poss
+                rew += 0.0 * poss   # (posse por tick removida: recompensava segurar a bola e nunca passar)
                 # enrolar: mesmo time com a bola por mais de 4 s seguidos -> penalidade crescente
                 possStreak = torch.where(has, possStreak + 1, torch.zeros_like(possStreak))
                 stall = (possStreak > 4 / DT).float().view(B, 1) * poss
