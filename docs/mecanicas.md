@@ -102,7 +102,10 @@ nos pés empurra a bola automaticamente enquanto a arrancada dura.
 do mouse durante a carga vira spin lateral; força cresce com o tempo segurado numa
 curva convexa (pouco carregado sai lento, carregado sai forte); de primeira começa
 mais rápido com o mesmo máximo; spin efetivo diminui com a força. Ao atingir a carga máxima (0,62 s) o chute sai
-sozinho; o passe idem em 0,4 s. Não dá para segurar indefinidamente. Preview da
+sozinho; o passe idem em 0,4 s. Não dá para segurar indefinidamente. O chute
+dominado tem animação mínima de 0,28 s: soltar cedo fixa a força fraca, mas a
+bola só sai depois desse tempo (compromisso, como no Rematch); o passe sai em
+0,05 s, quase instantâneo. Preview da
 trajetória curva é desenhado.
 
 ### Passe

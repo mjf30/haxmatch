@@ -344,11 +344,16 @@ class Game {
         const a = V.angle(p.facing);
         c.spin = V.clamp(c.spin + V.angleDiff(c.lastAngle, a) * CFG.SPIN_GAIN, -CFG.SPIN_MAX, CFG.SPIN_MAX);
         c.lastAngle = a;
-        // carga cheia: o chute sai sozinho (não dá para segurar indefinidamente)
-        if (released('shoot') || c.t >= CFG.CHARGE_MAX) { this.shoot(p, c); p.charge = null; p.armed.shoot = false; }
-        else if (pressed('special') || pressed('pass')) { p.charge = null; p.fakeT = 0.3; this.events.push({ type: 'fake', p }); }
-      } else if (released('pass') || c.t >= CFG.PASS_CHARGE) {
-        this.pass(p, c); p.charge = null; p.armed.pass = false;
+        // soltar fixa a força; a bola só sai após a animação mínima (windup).
+        // Carga cheia: sai sozinho (não dá para segurar indefinidamente).
+        if (released('shoot') && c.releasedT === undefined) c.releasedT = c.t;
+        const done = c.releasedT !== undefined ? c.t >= CFG.SHOT_WINDUP : c.t >= CFG.CHARGE_MAX;
+        if (done) { const power = Math.min(1, (c.releasedT !== undefined ? c.releasedT : c.t) / CFG.CHARGE_MAX); this.shoot(p, { t: power * CFG.CHARGE_MAX, dir0: c.dir0, spin: c.spin }); p.charge = null; p.armed.shoot = false; }
+        else if (c.releasedT === undefined && (pressed('special') || pressed('pass'))) { p.charge = null; p.fakeT = 0.3; this.events.push({ type: 'fake', p }); }
+      } else {
+        if (released('pass') && c.releasedT === undefined) c.releasedT = c.t;
+        const done = c.releasedT !== undefined ? c.t >= CFG.PASS_WINDUP : c.t >= CFG.PASS_CHARGE;
+        if (done) { const power = Math.min(1, (c.releasedT !== undefined ? c.releasedT : c.t) / CFG.PASS_CHARGE); this.pass(p, { t: power * CFG.PASS_CHARGE }); p.charge = null; p.armed.pass = false; }
       }
       return;
     }

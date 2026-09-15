@@ -47,6 +47,8 @@ const CFG = {
   // ---- chute ----
   CHARGE_MAX: 0.62, SHOT_MIN: 380, SHOT_MAX: 1200, SHOT_CURVE: 1.8,   // força = min + (max-min)·carga^curva: pouco carregado sai lento
   SHOT_MIN_FIRST: 520,              // chute de primeira começa mais rápido (mesmo máximo)
+  SHOT_WINDUP: 0.28,                // animação mínima do chute dominado: mesmo soltando cedo, a bola só sai depois disso
+  PASS_WINDUP: 0.05,                // passe é quase instantâneo
   SPIN_GAIN: 3.2, SPIN_POWER_FADE: 0.6,
   // ---- passe ----
   PASS_CHARGE: 0.4, PASS_MIN: 430, PASS_MAX: 700, PASS_ASSIST_DEG: 9,
