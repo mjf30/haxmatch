@@ -4,7 +4,7 @@
 // posições relativas ao jogador e normalizadas. Tamanho fixo (vagas vazias = zeros).
 const Features = (() => {
   const MAX_MATES = 4, MAX_OPPS = 5;
-  const SELF = 33, BALL = 12, MATE = 11, OPP = 10, GOALS = 6, MISC = 12;
+  const SELF = 35, BALL = 14, MATE = 12, OPP = 14, GOALS = 14, MISC = 14;
   const SIZE = SELF + BALL + MAX_MATES * MATE + MAX_OPPS * OPP + GOALS + MISC;
   const POS = 1 / (CFG.FIELD_W / 2);   // posições em [-1, 1]
   const VEL = 1 / 300;
@@ -87,6 +87,7 @@ const Features = (() => {
       }
       put(free / 600);
     }
+    put(p.cd.dash > 0 ? 1 : 0); put(p.cd.dive > 0 ? 1 : 0);   // cooldowns do dash e do mergulho (ações do controle total)
 
     // ---- bola (12) ----
     relPos(b.pos); put(V.dist(p.pos, b.pos) * DIST);
@@ -95,12 +96,23 @@ const Features = (() => {
     put(!o ? 1 : 0); put(o === p ? 1 : 0); put(o && o !== p && o.team === p.team ? 1 : 0); put(o && o.team !== p.team ? 1 : 0);
     put(p.reach ? 1 : 0);                       // alvo disponível para ação de primeira
     put(b.lock && b.lock !== p ? 1 : 0);        // outro jogador tem a prioridade
+    {                                           // onde a bola vai parar (sem paredes), relativo a mim
+      const k = CFG.BALL_DRAG, sp = V.len(b.vel);
+      const t = Math.min(3, Math.max(0, Math.log(Math.max(1, sp / 40)) / k));
+      const f = (1 - Math.exp(-k * t)) / k;
+      relPos(g.clampField(V.add(b.pos, V.mul(b.vel, f)), 10));
+    }
 
     // linha livre entre dois pontos (nenhum adversário a menos de 26 px da linha, fora as pontas)
     const oppsAll = g.players.filter((q) => q.active && q.team !== p.team);
     const laneFree = (a, c2) => oppsAll.every((o) => V.dist(o.pos, a) <= 30 || V.dist(o.pos, c2) <= 30 || V.segDist(o.pos, a, c2) >= o.r + 26) ? 1 : 0;
     const nearestOppD = (pt) => oppsAll.length ? Math.min(...oppsAll.map((o) => V.dist(o.pos, pt))) : 1000;
     const oppsNear = (pt) => oppsAll.filter((o) => V.dist(o.pos, pt) < 200).length;
+    const freeAheadOf = (q) => {   // adversário mais próximo num cone de ataque à frente de q
+      let free = 600;
+      for (const o of oppsAll) { const d = V.sub(o.pos, q.pos); if (d.x * dir > 0 && Math.abs(d.y) < d.x * dir * 0.8 + 40) free = Math.min(free, V.len(d)); }
+      return free / 600;
+    };
     // ---- companheiros (4 × 11), por distância ----
     const mates = g.players.filter((q) => q.active && q.team === p.team && q !== p)
       .sort((a, c) => V.dist(a.pos, p.pos) - V.dist(c.pos, p.pos));
@@ -111,6 +123,7 @@ const Features = (() => {
       put(Math.min(1, nearestOppD(q.pos) / 400));   // quão marcado ele está
       put(oppsNear(q.pos) / 5);                      // adversários perto dele
       put(laneFree(b.pos, q.pos));                   // linha de passe (da bola até ele) livre
+      put(freeAheadOf(q));                           // espaço livre à frente dele (profundidade)
     }
     // ---- adversários (5 × 10), por distância ----
     const opps = oppsAll.slice().sort((a, c) => V.dist(a.pos, p.pos) - V.dist(c.pos, p.pos));
@@ -121,12 +134,33 @@ const Features = (() => {
       put(1); relPos(q.pos); vel(q.vel); put(b.owner === q ? 1 : 0); put(q.isKeeper ? 1 : 0); put(pc.count[q.id] / cells * 4);
       put(Math.min(1, V.dist(q.pos, b.pos) * DIST));                          // distância dele à bola
       put(V.segDist(q.pos, p.pos, oppGoalPt) < q.r + 30 ? 1 : 0);              // está na minha linha de chute
+      put((q.fallen > 0 || q.getup > 0) ? 1 : 0);                              // caído / levantando
+      put(q.action ? 1 : 0);                                                   // em tackle, carrinho, dash…
+      put(q.stance === 'def' ? 1 : 0);                                         // postura defensiva
+      put(Math.min(1, V.dist(q.pos, { x: -dir * W2, y: 0 }) * DIST));          // perigo: distância dele ao meu gol
     }
 
     // ---- gols (6) ----
     const oppGoal = { x: dir * W2, y: 0 }, ownGoal = { x: -dir * W2, y: 0 };
     relPos(oppGoal); put(V.dist(p.pos, oppGoal) * DIST);
     relPos(ownGoal); put(V.dist(p.pos, ownGoal) * DIST);
+    {   // chute: linha livre para cada canto; goleiro adversário relativo ao gol dele
+      const blockers = oppsAll.filter((o) => !o.isKeeper);
+      for (const s of [-1, 1]) {
+        const corner = { x: oppGoal.x, y: s * (CFG.GOAL_W / 2 - 30) };
+        put(blockers.every((o) => V.segDist(o.pos, b.pos, corner) >= o.r + 30) ? 1 : 0);
+      }
+      const gk = oppsAll.find((o) => o.isKeeper);
+      if (gk) { put(1); put((gk.pos.x - oppGoal.x) * dir * DIST); put(gk.pos.y / (CFG.GOAL_W / 2)); }
+      else { put(0); put(0); put(0); }
+      // espaço livre à esquerda e à direita (cone lateral)
+      for (const s of [-1, 1]) {
+        let free = 600;
+        for (const o of oppsAll) { const d = V.sub(o.pos, p.pos); if (d.y * s > 0 && Math.abs(d.x) < d.y * s * 0.8 + 40) free = Math.min(free, V.len(d)); }
+        put(free / 600);
+      }
+      put(0);   // reservado
+    }
 
     // ---- diversos (12) ----
     put(mates.some((q) => q.isKeeper) || p.isKeeper ? 1 : 0);
@@ -143,6 +177,12 @@ const Features = (() => {
     put(teamShare(pc, g, p.team, dir, -1, 1));
     put(teamShare(pc, g, p.team, dir, 1 / 3, 1));
     put(teamShare(pc, g, p.team, dir, -1, -1 / 3));
+    {   // contra-ataque: adversários (de linha) mais perto do meu gol do que o meu último defensor de linha
+      const myField = g.players.filter((q) => q.active && q.team === p.team && !q.isKeeper);
+      const lastX = myField.length ? Math.min(...myField.map((q) => q.pos.x * dir)) : 0;
+      put(oppsAll.filter((o) => !o.isKeeper && o.pos.x * dir < lastX).length / 5);
+    }
+    put(g.state === 'play' ? 1 : 0);
     return out;
   }
 

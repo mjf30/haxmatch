@@ -38,7 +38,7 @@ def run(seed, secs):
         sim.facing[0, i] = torch.tensor([p['facing']['x'], p['facing']['y']])
         sim.stamina[0, i] = p['stamina']; sim.exhausted[0, i] = p['exhausted']; sim.effortBar[0, i] = p['effortBar']; sim.effortT[0, i] = p['effortT']
         sim.isKeeper[0, i] = p['isKeeper']; sim.held[0, i] = p['held']; sim.stance[0, i] = ST[p['stance']]
-        for k in ('tackle', 'slide', 'dribble'): sim.cd[k][0, i] = p['cd'][k]
+        for k in ('tackle', 'slide', 'dribble', 'dash', 'dive'): sim.cd[k][0, i] = p['cd'][k]
         sim.act[0, i] = ACT[p['action']]; sim.recover[0, i] = p['recover']; sim.fallen[0, i] = p['fallen']; sim.getup[0, i] = p['getup']
         sim.dribbleLag[0, i] = p['dribbleLag']
         sim.chKind[0, i] = 0 if not p['charge'] else (1 if p['charge']['kind'] == 'shot' else 2); sim.chT[0, i] = p['charge']['t'] if p['charge'] else 0
@@ -47,7 +47,7 @@ def run(seed, secs):
     b = st['ball']
     sim.bpos[0] = torch.tensor([b['pos']['x'], b['pos']['y']]); sim.bvel[0] = torch.tensor([b['vel']['x'], b['vel']['y']])
     sim.owner[0] = b['owner']; sim.lock[0] = b['lock']
-    sim.score[0] = torch.tensor(st['score']); sim.time[0] = st['time']
+    sim.score[0] = torch.tensor(st['score']); sim.time[0] = st['time']; sim.state[0] = 1   # o JS estava em jogo
     x = FT.build(sim)[0].cpu()
     ref = torch.tensor(st['feats'])
     diff = (x - ref).abs()
