@@ -501,7 +501,7 @@ class ScriptAI:
         sameOwner = torch.where(supHas & (supIdx == C.pidx), supRole, sameOwner)
         # adversário com a bola: pressiona / corta linha perigosa / último homem cobre / compacta
         dPc = (C.pos - C.ownerPos).norm(dim=-1)
-        orderD = (C.matesNK & (dQc < dPc.unsqueeze(-1))).sum(-1)
+        orderD = (C.matesNK & (dQc <= dPc.unsqueeze(-1))).sum(-1)   # <=: no JS o sort estável põe os companheiros antes de mim em empates
         dQown = (C.posQ - C.ownGoal.unsqueeze(2)).norm(dim=-1)
         lastMan = ~(C.matesNK & (dQown < C.dOwnGoalP.unsqueeze(-1))).any(-1)
         foHas, foIdx = C.freest_opp()
