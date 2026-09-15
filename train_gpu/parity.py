@@ -43,6 +43,16 @@ const out={};
 // 8) bola vindo a 500 px/s: domina? (limiar 600)
 { const [g,p]=setup(false); g.ball.pos={x:0,y:0}; g.ball.vel={x:-500,y:0}; let owned=false; for(let i=0;i<120;i++){ const inp=emptyInput(); inp.aim={x:5000,y:0}; g.setInput(2,inp); g.step(CFG.DT); if(g.ball.owner===p) owned=true;} out.control500=owned; }
 { const [g,p]=setup(false); g.ball.pos={x:0,y:0}; g.ball.vel={x:-900,y:0}; let owned=false; for(let i=0;i<120;i++){ const inp=emptyInput(); inp.aim={x:5000,y:0}; g.setInput(2,inp); g.step(CFG.DT); if(g.ball.owner===p) owned=true;} out.control900=owned; }
+// 9) de primeira com o botão segurado: bola lenta chega, domina e continua carregando; sai na carga cheia
+{ const [g,p]=setup(false); g.ball.pos={x:0,y:0}; g.ball.vel={x:-400,y:0}; let ctl=-1, st=-1, v0=0;
+  for(let i=0;i<300;i++){ const inp=emptyInput(); inp.aim={x:5000,y:0}; inp.shoot=true; g.setInput(2,inp); g.step(CFG.DT);
+    for(const e of g.events){ if(e.type==='control'&&ctl<0) ctl=i; if(e.type==='shot'){ st=i; v0=V.len(g.ball.vel); } } }
+  out.holdCtlTick=ctl; out.holdShotTick=st; out.holdShotV0=v0; }
+// 10) de primeira soltando antes do contato: sai no toque
+{ const [g,p]=setup(false); g.ball.pos={x:0,y:0}; g.ball.vel={x:-400,y:0}; let ft=-1, v0=0;
+  for(let i=0;i<300;i++){ const inp=emptyInput(); inp.aim={x:5000,y:0}; inp.shoot=(i<48); g.setInput(2,inp); g.step(CFG.DT);
+    for(const e of g.events){ if(e.type==='first-touch'&&ft<0){ ft=i; v0=V.len(g.ball.vel); } } }
+  out.firstTick=ft; out.firstV0=v0; }
 console.log(JSON.stringify(out));
 """
 
@@ -122,6 +132,21 @@ def torch_ref():
         for i in range(120):
             sim.step(inp(sim)); owned = owned or int(sim.owner[0]) == p
         out[key] = owned
+    sim, p = make(False)
+    sim.bpos[0] = torch.tensor([0.0, 0.0]); sim.bvel[0] = torch.tensor([-400.0, 0.0])
+    ctl, st, v0 = -1, -1, 0.0
+    for i in range(300):
+        ev = sim.step(inp(sim, shoot=True))
+        if ctl < 0 and 'control' in ev and ev['control'].any(): ctl = i
+        if 'shot' in ev and ev['shot'].any(): st = i; v0 = float(sim.bvel[0].norm())
+    out['holdCtlTick'] = ctl; out['holdShotTick'] = st; out['holdShotV0'] = v0
+    sim, p = make(False)
+    sim.bpos[0] = torch.tensor([0.0, 0.0]); sim.bvel[0] = torch.tensor([-400.0, 0.0])
+    ft, v0 = -1, 0.0
+    for i in range(300):
+        ev = sim.step(inp(sim, shoot=(i < 48)))
+        if ft < 0 and 'first' in ev and ev['first'].any(): ft = i; v0 = float(sim.bvel[0].norm())
+    out['firstTick'] = ft; out['firstV0'] = v0
     return out
 
 

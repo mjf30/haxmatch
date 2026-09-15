@@ -879,7 +879,22 @@ class Game {
       // (no Rematch, apertar de novo logo após um toque dá um toque maior)
       if (p.queued && p.fallen <= 0 && p.getup <= 0 && (!p.action || p.action.type === 'dash')) {
         const dseg = b.prevPos ? V.segDist(p.pos, b.prevPos, b.pos) : d;
-        if (dseg < R) { this.fireQueued(p); continue; }
+        if (dseg < R) {
+          const q = p.queued;
+          const limit = p.stance === 'def' ? CFG.CONTROL_MAX_DEF : CFG.CONTROL_MAX;
+          if ((q.kind === 'shot' || q.kind === 'pass') && q.charging && V.len(b.vel) <= limit) {
+            // botão ainda segurado: a ação de primeira só bufferizou o input. Domina a bola e
+            // segue carregando a partir do tempo já acumulado, até soltar ou o limite usual.
+            p.queued = null; b.lock = null;
+            this.take(p, false);
+            p.charge = q.kind === 'shot'
+              ? { kind: 'shot', t: Math.min(q.t, CFG.CHARGE_MAX), dir0: q.dir0, spin: q.spin }
+              : { kind: 'pass', t: Math.min(q.t, CFG.PASS_CHARGE) };
+            this.events.push({ type: 'control', p });
+            continue;
+          }
+          this.fireQueued(p); continue;
+        }
       }
       if (d >= R) continue;
       const speed = V.len(b.vel);

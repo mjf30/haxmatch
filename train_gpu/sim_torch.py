@@ -934,10 +934,23 @@ class TorchSim:
         seg = self._seg_dist(self.pos, self.bprev, self.bpos)
         canQ = cand & (self.qKind != Q_NONE) & (self.fallen <= 0) & (self.getup <= 0) & ((self.act == ACT_NONE) | (self.act == ACT_DASH)) & (seg < R)
         canQ = self._one_per_match(canQ)
-        self._fire_queued(canQ, self.prev_inp_for_kick())
+        speed = self.bvel.norm(dim=-1).view(B, 1)
+        # botão ainda segurado e bola controlável: domina e continua carregando (a ação de primeira só bufferiza o input)
+        limitQ = torch.where(self.stance == ST_DEF, CFG['CONTROL_MAX_DEF'], CFG['CONTROL_MAX']) * torch.ones_like(d)
+        holdQ = canQ & self.qCharging & ((self.qKind == Q_SHOT) | (self.qKind == Q_PASS)) & (speed <= limitQ)
+        if holdQ.any():
+            isS = holdQ & (self.qKind == Q_SHOT)
+            self.qKind = torch.where(holdQ, Q_NONE, self.qKind)
+            self.lock = torch.where(holdQ.any(dim=1), -1, self.lock)
+            self._take(holdQ, torch.zeros_like(holdQ))
+            self.chKind = torch.where(isS, CH_SHOT, torch.where(holdQ, CH_PASS, self.chKind))
+            self.chT = torch.where(isS, self.qT.clamp(max=CFG['CHARGE_MAX']), torch.where(holdQ, self.qT.clamp(max=CFG['PASS_CHARGE']), self.chT))
+            self.chRel = torch.where(holdQ, -1.0, self.chRel)
+            self.chDir = torch.where(isS.unsqueeze(-1), self.qDir, self.chDir); self.chSpin = torch.where(isS, self.qSpin, self.chSpin)
+            self.events['control'] = self.events.get('control', torch.zeros_like(holdQ)) | holdQ
+        self._fire_queued(canQ & ~holdQ, self.prev_inp_for_kick())
         has = self.owner >= 0; loose = ~has
         cand = cand & loose.view(B, 1) & (d < R) & ~canQ
-        speed = self.bvel.norm(dim=-1).view(B, 1)
         # outro tem a trava: só desvia
         lockOther = (self.lock.view(B, 1) >= 0) & (self.lock.view(B, 1) != pidx)
         canGrab = cand & free & ((self.act == ACT_NONE) | (self.act == ACT_DASH)) & ~lockOther
