@@ -57,6 +57,7 @@ const CFG = {
   // ---- goleiro ----
   GK_DIVE_DUR: 0.42, GK_DIVE_SPEED: 450, GK_DIVE_REACH: 14, GK_DIVE_RECOVER: 0.5, GK_DIVE_CD: 0.9,
   GK_PARRY_SPEED: 800, GK_HOLD_MAX: 5, GK_THROW: 560, GK_THROW_ASSIST_DEG: 20,
+  GK_REPEL: 80, GK_REPEL_PUSH: 420,  // zona de repulsão com a bola nas mãos (raio além do corpo, px/s de empurrão)
 
   KICKOFF_FREEZE: 1.2, GOAL_PAUSE: 2.2,
   TEAM_COLORS: ['#e94b3c', '#3c8ee9'],

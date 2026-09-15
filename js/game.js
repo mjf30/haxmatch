@@ -139,6 +139,7 @@ class Game {
     const frozen = this.state !== 'play';
     for (const p of this.players) if (p.active) this.updatePlayer(p, dt, frozen);
     this.collidePlayers();
+    this.keeperRepel(dt);
     for (const p of this.players) if (p.active) this.clampPlayer(p);
     this.updateBall(dt);
     if (this.state === 'play') this.contacts();
@@ -751,6 +752,26 @@ class Game {
       c.pos = V.add(c.pos, V.mul(n, push));
       const rel = V.dot(V.sub(c.vel, a.vel), n);
       if (rel < 0) { a.vel = V.add(a.vel, V.mul(n, rel * 0.5)); c.vel = V.sub(c.vel, V.mul(n, rel * 0.5)); }
+    }
+  }
+
+  // goleiro com a bola nas mãos: adversários são empurrados para fora de um raio.
+  // Não vale com a bola no pé (recuo), só quando agarrou com as luvas.
+  keeperRepel(dt) {
+    for (const k of this.players) {
+      if (!k.active || !k.isKeeper || !k.held || this.ball.owner !== k) continue;
+      const R = k.r + CFG.GK_REPEL;
+      for (const o of this.players) {
+        if (!o.active || o.team === k.team) continue;
+        const d = V.dist(o.pos, k.pos);
+        if (d >= R + o.r) continue;
+        const n = d > 1e-6 ? V.norm(V.sub(o.pos, k.pos)) : { x: k.team === 0 ? 1 : -1, y: 0 };
+        const gap = R + o.r - d;
+        o.pos = V.add(o.pos, V.mul(n, Math.min(gap, CFG.GK_REPEL_PUSH * dt)));
+        const inward = V.dot(o.vel, n);
+        if (inward < 0) o.vel = V.sub(o.vel, V.mul(n, inward));
+        if (o.action && (o.action.type === 'tackle' || o.action.type === 'slide')) { o.action = null; o.getup = 0.3; }
+      }
     }
   }
 

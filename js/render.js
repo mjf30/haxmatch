@@ -154,6 +154,11 @@ class Renderer {
       ctx.beginPath(); ctx.arc(0, 0, p.r, 0, Math.PI * 2); ctx.fill();
       ctx.strokeStyle = p.recover > 0 ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.55)';
       ctx.lineWidth = 2; ctx.stroke();
+      // goleiro com a bola nas mãos: zona de repulsão
+      if (p.isKeeper && p.held && game.ball.owner === p) {
+        ctx.strokeStyle = 'rgba(255,216,74,0.35)'; ctx.lineWidth = 2; ctx.setLineDash([5, 6]);
+        ctx.beginPath(); ctx.arc(0, 0, p.r + CFG.GK_REPEL, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+      }
       // goleiro: luvas
       if (p.isKeeper) {
         ctx.fillStyle = '#ffd84a';

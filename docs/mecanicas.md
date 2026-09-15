@@ -154,7 +154,9 @@ recarga lenta). Goleiro não gasta stamina no próprio campo.
 
 **2D:** luvas atribuídas ao primeiro na área; mergulho com raio de catch limitado;
 bolas muito fortes são espalmadas em vez de agarradas; segurar até 5 s; posse nas
-mãos intocável; sair da área solta para os pés.
+mãos intocável; sair da área solta para os pés. Com a bola nas mãos existe uma
+zona de repulsão que empurra adversários para longe (não vale com a bola no pé,
+como num recuo).
 
 ### Fora do escopo 2D (por decisão)
 - Lob, cabeçada, voleio, chapéu (rainbow flick), jump block, bola por cima.
