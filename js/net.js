@@ -23,24 +23,24 @@ class NetHost {
     this.peer.on('open', () => this.h.onReady(code));
     this.peer.on('error', (e) => this.h.onError(e.type === 'unavailable-id' ? 'Código de sala já em uso, tente outro.' : `Erro de rede: ${e.type || e}`));
     this.peer.on('connection', (conn) => {
-      let pid = null;
-      conn.on('open', () => {
-        // espera o "hello" com o nome antes de alocar
-      });
       conn.on('data', (d) => {
         if (!d || typeof d !== 'object') return;
+        const pid = this.conns.has(conn) ? this.conns.get(conn) : null;
         if (d.t === 'hello' && pid === null) {
-          pid = this.h.onJoin(conn, String(d.name || '').slice(0, 12));
-          if (pid === null) { conn.send({ t: 'full' }); setTimeout(() => conn.close(), 200); return; }
-          this.conns.set(conn, pid);
-          conn.send({ t: 'welcome', pid, teamSize: this.h.teamSize, seed: this.h.seed });
+          const np = this.h.onJoin(conn, String(d.name || '').slice(0, 12));
+          if (np === null) { conn.send({ t: 'full' }); setTimeout(() => conn.close(), 200); return; }
+          this.conns.set(conn, np);
+          conn.send({ t: 'welcome', pid: np, teamSize: this.h.teamSize, seed: this.h.seed });
         } else if (d.t === 'input' && pid !== null) {
           this.h.onInput(pid, d.i);
         } else if (d.t === 'pong' && pid !== null && typeof d.ts === 'number') {
           this.h.onPing(pid, performance.now() - d.ts);
+        } else if (d.t === 'switch' && pid !== null) {
+          const np = this.h.onSwitch(pid);
+          if (np !== null && np !== pid) { this.conns.set(conn, np); conn.send({ t: 'assign', pid: np }); }
         }
       });
-      const bye = () => { if (pid !== null && this.conns.has(conn)) { this.conns.delete(conn); this.h.onLeave(pid); pid = null; } };
+      const bye = () => { if (this.conns.has(conn)) { const pid = this.conns.get(conn); this.conns.delete(conn); this.h.onLeave(pid); } };
       conn.on('close', bye);
       conn.on('error', bye);
     });
@@ -69,6 +69,7 @@ class NetGuest {
         if (d.t === 'welcome') this.h.onWelcome(d);
         else if (d.t === 'state') this.h.onState(d);
         else if (d.t === 'ping') conn.send({ t: 'pong', ts: d.ts });
+        else if (d.t === 'assign') this.h.onAssign(d.pid);
         else if (d.t === 'full') this.h.onClose('Sala cheia.');
       });
       conn.on('close', () => this.h.onClose('Conexão encerrada pelo host.'));

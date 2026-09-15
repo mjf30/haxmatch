@@ -100,6 +100,12 @@
         remoteQueues.delete(pid); remoteLast.delete(pid); remoteNames.delete(pid);
       },
       onPing(pid, rtt) { if (game && game.players[pid]) game.players[pid].ping = rtt; },
+      onSwitch(pid) {
+        const np = moveToOtherTeam(pid, remoteNames.get(pid) || game.players[pid].name);
+        if (np === null) return null;
+        for (const m of [remoteQueues, remoteLast, remoteNames]) { m.set(np, m.get(pid)); m.delete(pid); }
+        return np;
+      },
       onInput(pid, inp) {
         const q = remoteQueues.get(pid);
         if (!q) return;
@@ -148,9 +154,39 @@
         const evs = NetState.apply(game, s);
         for (const e of evs) onEvent(e);
       },
+      onAssign(pid) { humanId = pid; },
       onClose(reason) { leaveToLobby(reason); },
       onError(msg) { setStatus(msg, true); mode = null; },
     });
+  }
+
+  // move o jogador da vaga pid para uma vaga livre do outro time; devolve a nova vaga
+  let lastSwitch = -10;
+  function moveToOtherTeam(pid, name) {
+    const p = game.players[pid];
+    const other = 1 - p.team;
+    const free = game.players.filter((q) => q.team === other && !q.human).sort((a, b) => b.idx - a.idx);
+    if (!free.length) return null;
+    const q = free[0];
+    // libera a vaga antiga
+    p.human = false; p.name = (p.team === 0 ? 'V' : 'A') + (p.idx + 1);
+    p.isKeeper = false; p.charge = null; p.queued = null;
+    if (game.ball.owner === p) { game.ball.owner = null; p.held = false; }
+    const botsHere = mode === 'solo' || withBots;
+    if (!botsHere) { p.active = false; p.pos = { x: 0, y: -CFG.FIELD_H }; }
+    // ocupa a nova
+    q.human = true; q.name = name; q.isKeeper = false; q.stats = { goals: 0, assists: 0, steals: 0, saves: 0 };
+    if (!q.active) { q.active = true; q.pos = { x: q.home.x, y: q.home.y }; }
+    renderer.addFlash(`${name} → ${CFG.TEAM_NAMES[other]}`, q.pos, CFG.TEAM_COLORS[other]);
+    return q.id;
+  }
+
+  function requestTeamSwitch() {
+    if (!game || performance.now() - lastSwitch < 3000) return;
+    lastSwitch = performance.now();
+    if (mode === 'guest') { net.send({ t: 'switch' }); return; }
+    const np = moveToOtherTeam(humanId, myName());
+    if (np !== null) humanId = np;
   }
 
   function leaveToLobby(reason) {
@@ -171,6 +207,7 @@
       if (code === 'KeyH') renderer.showHelp = !renderer.showHelp;
       if (code === 'KeyP' && mode === 'solo') paused = !paused;
       if (code === 'Enter') toggleFullscreen();
+      if (code === 'KeyT' && renderer.showScoreboard) requestTeamSwitch();
       if (code === 'Escape' && !document.fullscreenElement) leaveToLobby('');
     },
   });
@@ -245,7 +282,7 @@
     while (acc >= CFG.DT) {
       const human = game.players[humanId];
       for (const p of game.players) {
-        if (p === human) game.setInput(p.id, input.sample((sx, sy) => renderer.screenToWorld(sx, sy)));
+        if (p === human) game.setInput(p.id, renderer.showScoreboard ? Object.assign(emptyInput(), { aim: human.input.aim }) : input.sample((sx, sy) => renderer.screenToWorld(sx, sy)));
         else if (p.human && mode === 'host') game.setInput(p.id, nextRemoteInput(p.id));
         else game.setInput(p.id, AI.think(p, game, CFG.DT));
       }
@@ -272,7 +309,7 @@
   let guestAcc = 0;
   function guestFrame(frameDt) {
     const human = game.players[humanId];
-    const inp = input.sample((sx, sy) => renderer.screenToWorld(sx, sy));
+    const inp = renderer.showScoreboard ? Object.assign(emptyInput(), { aim: human.input.aim }) : input.sample((sx, sy) => renderer.screenToWorld(sx, sy));
     human.input = inp;                     // para mira/preview locais
     guestAcc += frameDt;
     while (guestAcc >= CFG.DT) { net.send({ t: 'input', i: inp }); guestAcc -= CFG.DT; }
@@ -296,6 +333,12 @@
     }
   }
 
+  canvas.addEventListener('mousedown', (e) => {
+    if (!game || !renderer.showScoreboard || e.button !== 0 || !renderer.switchBtn) return;
+    const r = canvas.getBoundingClientRect();
+    const x = e.clientX - r.left, y = e.clientY - r.top, b = renderer.switchBtn;
+    if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) requestTeamSwitch();
+  });
   window.addEventListener('resize', () => renderer.resize());
   window.addEventListener('beforeunload', () => { if (net) net.destroy(); });
   requestAnimationFrame(frame);

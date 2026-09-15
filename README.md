@@ -79,7 +79,7 @@ node test/netstate.js           # snapshot de rede: encode/apply reproduz o esta
 | Mergulho (goleiro) | Espaço sem bola dentro da própria área |
 | Arremesso (goleiro) | F com a bola nas mãos |
 | Pedir bola | Botão do meio |
-| Placar e ping | Tab (segurar) |
+| Placar e ping | Tab (segurar). Com o Tab aberto, T ou clique no botão troca de time |
 | Trocar jogador (solo) | Q |
 | Reiniciar / ajuda / pausa | R / H / P |
 

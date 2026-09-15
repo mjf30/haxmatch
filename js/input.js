@@ -26,7 +26,7 @@ class HumanInput {
     const gameKeys = new Set([
       'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
       'Space', 'ShiftLeft', 'ShiftRight', 'ControlLeft', 'ControlRight',
-      'KeyE', 'KeyF', 'KeyC', 'Tab', 'KeyR', 'KeyH', 'KeyP', 'KeyQ', 'Enter', 'Escape',
+      'KeyE', 'KeyF', 'KeyC', 'Tab', 'KeyR', 'KeyH', 'KeyP', 'KeyQ', 'KeyT', 'Enter', 'Escape',
     ]);
     const typing = (e) => {
       const t = e.target;

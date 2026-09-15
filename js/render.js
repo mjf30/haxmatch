@@ -302,7 +302,7 @@ class Renderer {
     const cols = [['Jogador', 190], ['G', 40], ['A', 40], ['Roubos', 70], ['Defesas', 70], ['Ping', 60]];
     const tw = cols.reduce((s, c) => s + c[1], 0) + 40;
     const rows = game.players.filter((p) => p.active);
-    const th = 60 + rows.length * 24 + 40;
+    const th = 60 + rows.length * 24 + 40 + 44;
     const x0 = w / 2 - tw / 2, y0 = h / 2 - th / 2;
     ctx.fillStyle = 'rgba(0,0,0,0.78)';
     ctx.fillRect(x0, y0, tw, th);
@@ -332,7 +332,14 @@ class Renderer {
         y += 24;
       }
     }
-    ctx.font = '11px sans-serif'; ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.textAlign = 'center';
+    // botão de trocar de time
+    const other = human ? 1 - human.team : 1;
+    const bw = 220, bh = 30, bx = x0 + tw / 2 - bw / 2, by = y0 + th - 70;
+    this.switchBtn = { x: bx, y: by, w: bw, h: bh };
+    ctx.fillStyle = CFG.TEAM_COLORS[other]; ctx.fillRect(bx, by, bw, bh);
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText(`Trocar para ${CFG.TEAM_NAMES[other]}  (T)`, bx + bw / 2, by + bh / 2);
+    ctx.font = '11px sans-serif'; ctx.fillStyle = 'rgba(255,255,255,0.5)';
     ctx.fillText('G gols · A assistências · Roubos: tackles e carrinhos certos · Defesas: mergulhos do goleiro', x0 + tw / 2, y0 + th - 16);
   }
 
@@ -407,7 +414,7 @@ class Renderer {
         'Espaço: push ball (com bola) / drible (Ctrl+bola) / dash (Ctrl sem bola) / mergulho do goleiro',
         'E tackle · Shift+E carrinho · Ctrl (ou C) postura · F arremesso do goleiro · botão do meio pede a bola',
         'Bola brilhando = zona de ação: LMB/RMB/Espaço agendam a ação, executada no toque · Shift 2x com bola = arrancada',
-        'Tab placar/ping · Q troca jogador (solo) · R reinicia · H esconde esta ajuda',
+        'Tab placar/ping (T ou clique = trocar de time) · Q troca jogador (solo) · R reinicia · H ajuda',
         'Enter: tela cheia (bloqueia Ctrl+W e outros atalhos do navegador)',
       ];
       ctx.font = '12px sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'top';
