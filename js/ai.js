@@ -34,7 +34,30 @@ const AI = (() => {
     return best;
   }
 
+  // tempo de reação: quando a posse muda (chute, passe, roubo, bola solta) o bot
+  // continua com o input anterior por um instante antes de decidir de novo
   function think(p, g, dt) {
+    const ai = p.ai;
+    const ownerId = g.ball.owner ? g.ball.owner.id : -1;
+    if (ai.lastOwner === undefined) ai.lastOwner = ownerId;
+    if (ownerId !== ai.lastOwner) {
+      ai.lastOwner = ownerId;
+      const base = p.isKeeper ? CFG.BOT_REACTION_GK : CFG.BOT_REACTION;
+      ai.reactUntil = (ai.t || 0) + base * (0.7 + 0.6 * g.rng());
+    }
+    if (ai.reactUntil && (ai.t || 0) < ai.reactUntil && ai.lastInput) {
+      ai.t = (ai.t || 0) + dt;
+      const held = Object.assign(emptyInput(), ai.lastInput);
+      held.aim = { x: ai.lastInput.aim.x, y: ai.lastInput.aim.y };
+      held.special = false; held.tackle = false;   // não repete ações de um toque
+      return held;
+    }
+    const inp = decide(p, g, dt);
+    ai.lastInput = inp;
+    return inp;
+  }
+
+  function decide(p, g, dt) {
     const inp = emptyInput();
     const ball = g.ball;
     const dir = p.team === 0 ? 1 : -1;

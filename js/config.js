@@ -23,7 +23,7 @@ const CFG = {
   EFFORT_RECHARGE: 12, EFFORT_DUR: 0.8, DOUBLE_TAP: 0.3,
 
   // ---- bola ----
-  BALL_DRAG: 0.7, BALL_DECEL: 35, BALL_BOUNCE: 0.72, BALL_MAX: 1050,
+  BALL_DRAG: 0.7, BALL_DECEL: 35, BALL_BOUNCE: 0.72, BALL_MAX: 1300,
   SPIN_DECAY: 1.3, SPIN_MAX: 1.7,
   CARRY_K: 14, CARRY_MAX_REL: 260, CARRY_LERP: 18, CARRY_DIST: 3, CARRY_LOSE: 34,   // condução física da bola
   PASS_THROUGH: 0.25,               // bola atravessa o corpo de quem acabou de chutar
@@ -39,7 +39,7 @@ const CFG = {
   KICK_COOLDOWN: 0.35, PUSH_COOLDOWN: 0.14, DEFLECT_COOLDOWN: 0.2,
 
   // ---- chute ----
-  CHARGE_MAX: 0.62, SHOT_MIN: 400, SHOT_MAX: 950,
+  CHARGE_MAX: 0.62, SHOT_MIN: 480, SHOT_MAX: 1200,
   SPIN_GAIN: 3.2, SPIN_POWER_FADE: 0.6,
   // ---- passe ----
   PASS_CHARGE: 0.4, PASS_MIN: 320, PASS_MAX: 620, PASS_ASSIST_DEG: 9,
@@ -55,10 +55,12 @@ const CFG = {
   DASH_DUR: 0.16, DASH_MUL: 2.6, DASH_CD: 0.6,
   DRIBBLE_DUR: 0.2, DRIBBLE_MUL: 2.4, DRIBBLE_CD: 1.5,
   // ---- goleiro ----
-  GK_DIVE_DUR: 0.42, GK_DIVE_SPEED: 450, GK_DIVE_REACH: 14, GK_DIVE_RECOVER: 0.5, GK_DIVE_CD: 0.9,
-  GK_PARRY_SPEED: 800, GK_HOLD_MAX: 5, GK_THROW: 560, GK_THROW_ASSIST_DEG: 20,
+  GK_DIVE_DUR: 0.42, GK_DIVE_SPEED: 400, GK_DIVE_REACH: 10, GK_DIVE_RECOVER: 0.6, GK_DIVE_CD: 1.0,
+  GK_PARRY_SPEED: 900, GK_HOLD_MAX: 5, GK_THROW: 560, GK_THROW_ASSIST_DEG: 20,
   GK_REPEL: 80, GK_REPEL_PUSH: 420,  // zona de repulsão com a bola nas mãos (raio além do corpo, px/s de empurrão)
 
+  BOT_REACTION: 0.28,               // tempo de reação dos bots a mudanças de posse (s, com variação aleatória)
+  BOT_REACTION_GK: 0.22,
   KICKOFF_FREEZE: 1.2, GOAL_PAUSE: 2.2,
   TEAM_COLORS: ['#e94b3c', '#3c8ee9'],
   TEAM_NAMES: ['Vermelho', 'Azul'],

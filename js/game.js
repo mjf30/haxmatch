@@ -706,7 +706,8 @@ class Game {
       if (canGrab && p.queued) { this.fireQueued(p); continue; }   // toque de primeira
       const speed = V.len(b.vel);
       const hands = p.isKeeper && this.inOwnBox(p);
-      const limit = hands ? Infinity : (p.stance === 'def' ? CFG.CONTROL_MAX_DEF : CFG.CONTROL_MAX);
+      const limit = hands ? (p.stance === 'def' ? CFG.GK_PARRY_SPEED * 1.3 : CFG.GK_PARRY_SPEED)
+        : (p.stance === 'def' ? CFG.CONTROL_MAX_DEF : CFG.CONTROL_MAX);
       if (canGrab && speed <= limit) {
         this.take(p, hands);
         this.events.push({ type: hands ? 'catch' : 'control', p });
