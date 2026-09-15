@@ -19,8 +19,9 @@ const AI = (() => {
   //           openbest (abrir no ponto mais livre da grade), cutlane (cortar a linha de passe)
   const MACROS = ['shoot', 'shootq', 'pass', 'passback', 'longpass', 'through', 'switch', 'dribble', 'carryspace', 'hold',
     'chase', 'defend', 'cover', 'cutlane', 'openfwd', 'openwide', 'overlap', 'runbox', 'runspace', 'openback', 'openbest', 'guardgoal', 'home',
-    'gk_angle', 'gk_rush', 'gk_line', 'gk_up'];
-  const GK_MACROS = ['gk_angle', 'gk_rush', 'gk_line', 'gk_up'];
+    'gk_angle', 'gk_press', 'gk_rush', 'gk_line', 'gk_up'];
+  // gk_press: sai fechando o ângulo agressivamente com a postura defensiva, sem tackle nem mergulho
+  const GK_MACROS = ['gk_angle', 'gk_press', 'gk_rush', 'gk_line', 'gk_up'];
   const KICK_MACROS = ['shoot', 'shootq', 'pass', 'passback', 'longpass', 'through', 'switch'];
 
   function nearest(list, pt) {
@@ -45,9 +46,9 @@ const AI = (() => {
     for (const m of mates) {
       const d = V.dist(p.pos, m.pos);
       if (d < minDist || d > 900) continue;
-      if (m.isKeeper && !m.callT) continue;
       const on = nearest(opps, m.pos).d;
       if (on < 75) continue;
+      if (m.isKeeper && on < 200) continue;   // goleiro só como opção quando bem livre
       if (!laneClear(g.ball.pos, m.pos, opps, 26)) continue;
       const progress = (m.pos.x - p.pos.x) * dir;
       const score = progress + on * 0.8 - d * 0.25 + (m.callT > 0 ? 250 : 0);
@@ -316,7 +317,6 @@ const AI = (() => {
   function safePassTarget(g, p, c) {
     let best = null, bs = -Infinity;
     for (const m of c.mates) {
-      if (m.isKeeper && !m.callT) continue;
       const d = V.dist(p.pos, m.pos);
       if (d < 80 || d > 700) continue;
       if ((m.pos.x - p.pos.x) * c.dir > 60) continue;          // não é "para trás"
@@ -665,10 +665,14 @@ const AI = (() => {
       if (ai.mode === 'pass') return ai.macro === 'passback' || ai.macro === 'switch' ? ai.macro : 'pass';
       const holdT = ai.holdT || 0;
       if (mates.some((m) => m.callT > 0) && holdT > 0.3) return 'pass';
-      if (holdT < 0.7) return 'hold';
-      if (bestPass(g, p, mates, opps, dir, 150)) return 'pass';
+      if (holdT < 0.3) return 'hold';                                   // um instante para ler o jogo
+      if (throughTarget(g, p, c)) return 'through';
+      if (switchTarget(g, p, c) && g.rng() < 0.5) return 'switch';
+      if (bestPass(g, p, mates, opps, dir, 120)) return 'pass';
+      if (safePassTarget(g, p, c)) return 'passback';
       if (longPassTarget(g, p, c)) return 'longpass';
       if (holdT > 1.6) return 'longpass';
+      if (!p.held && nearest(opps, p.pos).d > 160) return 'dribble';   // no pé e sem pressão: sai conduzindo
       return 'hold';
     }
     const loose = !ball.owner;
@@ -678,6 +682,7 @@ const AI = (() => {
       if (myD < oppD - 10 || myD < 90) return 'gk_rush';
     }
     if (ball.owner && ball.owner.team !== p.team && inBox && V.dist(p.pos, ball.pos) < 160) return 'gk_rush';
+    if (ball.owner && ball.owner.team !== p.team && V.dist(ball.pos, c.ownGoal) < 520 && g.rng() < 0.6) return 'gk_press';
     if (ball.pos.x * dir > c.W2 * 0.35 && (!ball.owner || ball.owner.team === p.team)) return 'gk_up';   // bola longe, no ataque: sobe
     const towardMe = loose && ball.vel.x * dir < 0 && V.len(ball.vel) > 400;
     if (towardMe && V.dist(ball.pos, c.ownGoal) < 500) return 'gk_line';
@@ -730,6 +735,17 @@ const AI = (() => {
       if (loose) { const myD = V.dist(p.pos, ball.pos); target = predictBall(g, V.clamp(myD / 500, 0, 0.5)); }
       else { target = ball.pos; if (V.dist(p.pos, ball.pos) < 58 && p.cd.tackle <= 0) inp.tackle = true; }
       sprint = true;
+    } else if (macro === 'gk_press') {
+      // fecha o ângulo agressivamente: avança na linha bola-gol até perto do atacante,
+      // com a postura defensiva (hitbox maior, agarra qualquer bola do adversário); sem tackle/mergulho
+      const depth = Math.min(Math.max(60, dBall - 70), CFG.BOX_W - 25);
+      target = V.add(ownGoal, V.mul(V.norm(toBall), depth));
+      target.y = V.clamp(target.y, -CFG.BOX_H / 2 * 0.8, CFG.BOX_H / 2 * 0.8);
+      sprint = V.dist(p.pos, target) > 120;
+      moveTo(target, sprint);
+      inp.aim = ball.pos;
+      inp.stance = true;
+      return inp;
     } else if (macro === 'gk_line') {
       // na linha: acompanha o y da bola (ou onde ela vai cruzar), fundo, pronto para mergulhar
       let y = ball.pos.y;
