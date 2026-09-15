@@ -15,22 +15,35 @@ import torch.nn.functional as F
 sys.path.insert(0, os.path.dirname(__file__))
 from sim_torch import TorchSim, CFG, DT, M_PLAY
 import features_torch as FT
+import ai_torch as AT
 
 HEADS = [('move', 9), ('aim', 16), ('curve', 3), ('shoot', 2), ('pas', 2), ('sprint', 2), ('stance', 2), ('special', 2), ('tackle', 2)]
 NOUT = sum(n for _, n in HEADS)   # 40
 HID = 256
 
 
+MACRO_HEADS = [('macro', len(AT.MACROS))]
+
+
 class Policy(nn.Module):
-    """MLP tanh 135->256->256->40 (política, exportável) + cabeça de valor separada"""
-    def __init__(self):
+    """política exportável + cabeça de valor separada (207->256->256->1).
+    raw: MLP tanh 207->256->256->40 (cabeças discretas do input cru)
+    macro: MLP tanh 207->hid->28 (uma macro por jogador; a execução é a do script em ai_torch)"""
+    def __init__(self, kind='raw', hid=None):
         super().__init__()
-        self.l1 = nn.Linear(FT.SIZE, HID); self.l2 = nn.Linear(HID, HID); self.out = nn.Linear(HID, NOUT)
+        self.kind = kind
+        self.heads = HEADS if kind == 'raw' else MACRO_HEADS
+        self.nout = sum(n for _, n in self.heads)
+        self.hid = hid or (HID if kind == 'raw' else 64)
+        self.l1 = nn.Linear(FT.SIZE, self.hid)
+        self.l2 = nn.Linear(self.hid, self.hid) if kind == 'raw' else None
+        self.out = nn.Linear(self.hid, self.nout)
         self.v1 = nn.Linear(FT.SIZE, HID); self.v2 = nn.Linear(HID, HID); self.vout = nn.Linear(HID, 1)
         nn.init.orthogonal_(self.out.weight, 0.01); nn.init.zeros_(self.out.bias)
 
     def logits(self, x):
-        h = torch.tanh(self.l1(x)); h = torch.tanh(self.l2(h))
+        h = torch.tanh(self.l1(x))
+        if self.l2 is not None: h = torch.tanh(self.l2(h))
         return self.out(h)
 
     def value(self, x):
@@ -40,7 +53,7 @@ class Policy(nn.Module):
     def dists(self, x):
         lg = self.logits(x)
         out, k = [], 0
-        for _, n in HEADS:
+        for _, n in self.heads:
             out.append(torch.distributions.Categorical(logits=lg[..., k:k + n])); k += n
         return out
 
@@ -56,6 +69,16 @@ class Policy(nn.Module):
         ent = sum(d.entropy() for d in ds)
         return logp, ent, self.value(x)
 
+    def load_js_weights(self, w):
+        """pesos planos no layout do js/nn.js (por camada: W[out][in] e bias) -> camadas da política"""
+        w = torch.tensor(w, dtype=torch.float32)
+        k = 0
+        for lin in ((self.l1, self.l2, self.out) if self.l2 is not None else (self.l1, self.out)):
+            o, i_ = lin.weight.shape
+            lin.weight.data.copy_(w[k:k + o * i_].view(o, i_)); k += o * i_
+            lin.bias.data.copy_(w[k:k + o]); k += o
+        assert k == w.numel(), (k, w.numel())
+
 
 def acts_to_dict(a):
     return {name: a[..., i] for i, (name, _) in enumerate(HEADS)}
@@ -67,13 +90,26 @@ SKIP = 1
 def export_js(pol, path, info):
     """exporta a política (sem a cabeça de valor) no formato lido por js/rawbot.js"""
     ws = []
-    for lin in (pol.l1, pol.l2, pol.out):
+    lins = (pol.l1, pol.l2, pol.out) if pol.l2 is not None else (pol.l1, pol.out)
+    for lin in lins:
         ws.append(lin.weight.detach().cpu().reshape(-1)); ws.append(lin.bias.detach().cpu())
     w = torch.cat(ws)
-    obj = {'kind': 'raw2', 'sizes': [FT.SIZE, HID, HID, NOUT], 'heads': [n for _, n in HEADS], 'obs': FT.SIZE, 'info': info, 'skip': SKIP,
-           'w': [round(float(v), 5) for v in w.tolist()]}
+    if pol.kind == 'raw':
+        obj = {'kind': 'raw2', 'sizes': [FT.SIZE, HID, HID, NOUT], 'heads': [n for _, n in HEADS], 'obs': FT.SIZE, 'info': info, 'skip': SKIP,
+               'w': [round(float(v), 5) for v in w.tolist()]}
+        head = "'use strict';\n// Pesos PPO (controle total) exportados por train_gpu/ppo.py. %s\nconst NN_RAW_WEIGHTS = %s;\n"
+    else:
+        obj = {'kind': 'macro', 'sizes': [FT.SIZE, pol.hid, pol.nout], 'obs': FT.SIZE, 'info': info, 'skip': SKIP,
+               'w': [round(float(v), 5) for v in w.tolist()]}
+        head = "'use strict';\n// Pesos PPO híbrido (decisão tática; execução do script) exportados por train_gpu/ppo.py. %s\nconst NN_WEIGHTS = %s;\n"
     with open(path, 'w', encoding='utf-8') as f:
-        f.write("'use strict';\n// Pesos PPO (controle total) exportados por train_gpu/ppo.py. %s\nconst NN_RAW_WEIGHTS = %s;\n" % (info, json.dumps(obj)))
+        f.write(head % (info, json.dumps(obj)))
+
+
+def load_js_json(path):
+    """lê pesos de um .json (train/*.json) ou de um .js (const NN_WEIGHTS = {...};)"""
+    txt = open(path, encoding='utf-8').read()
+    return json.loads(txt[txt.index('{'):txt.rindex('}') + 1])
 
 
 def main():
@@ -91,6 +127,11 @@ def main():
     ap.add_argument('--skip', type=int, default=1)             # frame-skip: a política decide a cada N ticks e a ação é mantida
     ap.add_argument('--shape_decay', type=int, default=0)      # iterações para o shaping denso decair linearmente até --shape_floor (0 = sem decaimento)
     ap.add_argument('--shape_floor', type=float, default=0.3)
+    ap.add_argument('--policy', type=str, default='raw')        # raw (controle total) | macro (híbrido)
+    ap.add_argument('--hid', type=int, default=0)               # camada escondida da política macro (0 = 64)
+    ap.add_argument('--init_js', type=str, default=None)        # pesos iniciais no layout JS (clonagem / ES), só para macro
+    ap.add_argument('--out', type=str, default=None)            # arquivo .js de exportação
+    ap.add_argument('--script_frac', type=float, default=0.0)   # fração das partidas com o script (torch) no time 1
     ap.add_argument('--league_init', type=str, default=None)   # checkpoints congelados que ficam na liga o treino inteiro (benchmark), separados por vírgula
     ap.add_argument('--approach', type=float, default=0.02)   # shaping denso: aproximar-se da bola solta (currículo inicial)
     ap.add_argument('--sanity', action='store_true')
@@ -102,7 +143,10 @@ def main():
     B, T = args.envs, args.team
     sim = TorchSim(B, T, device='cuda', seconds=args.seconds, seed=args.seed)
     P = sim.P
-    pol = Policy().to(dev)
+    pol = Policy(args.policy, args.hid or None).to(dev)
+    if args.init_js and args.policy == 'macro':
+        pol.load_js_weights(load_js_json(args.init_js)['w']); print('política macro inicializada de', args.init_js)
+    ai = AT.ScriptAI(sim)   # execução das macros (híbrido) e script adversário
     opt = torch.optim.Adam(pol.parameters(), lr=args.lr, eps=1e-5)
     it0 = 0
     if args.resume and os.path.exists(args.resume):
@@ -120,14 +164,15 @@ def main():
     if args.league_init:
         for path in args.league_init.split(','):
             ckl = torch.load(path, map_location=dev)
-            snap = Policy().to(dev); snap.load_state_dict(ckl['pol']); snap.eval()
+            snap = Policy(ckl.get('kind', args.policy), ckl.get('hid')).to(dev); snap.load_state_dict(ckl['pol']); snap.eval()
             for p_ in snap.parameters(): p_.requires_grad_(False)
             league.append(snap.state_dict()); oppPols.append(snap); nFixed += 1
             print('liga: adversário fixo', path, 'iteração', ckl.get('it'))
     team1 = (sim.team == 1).view(1, P).expand(B, P)
     SKIP = args.skip
     ckpt = args.ckpt or os.path.join(os.path.dirname(__file__), 'ckpt_sanity.pt' if (args.sanity or args.sanity2) else 'ckpt.pt')
-    outjs = os.path.join(os.path.dirname(__file__), '..', 'js', 'nn_raw_weights.js')
+    outjs = args.out or os.path.join(os.path.dirname(__file__), '..', 'js', 'nn_raw_weights.js') if args.policy == 'raw' else (args.out or os.path.join(os.path.dirname(__file__), 'macro_ppo_weights.js'))
+    scriptEnv = torch.zeros(B, dtype=torch.bool, device=dev)   # partidas com o script no time 1
     # estatísticas
     stat = dict(goals=0.0, matches=0.0, shots=0.0, control=0.0, passes=0.0, passOk=0.0, steps=0)
     prevScore = sim.score.clone()
@@ -143,7 +188,7 @@ def main():
         R = args.rollout
         shape = max(args.shape_floor, 1.0 - it / args.shape_decay) if args.shape_decay > 0 else 1.0
         obs_buf = torch.zeros(R, B, P, FT.SIZE, device=dev)
-        act_buf = torch.zeros(R, B, P, len(HEADS), dtype=torch.long, device=dev)
+        act_buf = torch.zeros(R, B, P, len(pol.heads), dtype=torch.long, device=dev)
         logp_buf = torch.zeros(R, B, P, device=dev); val_buf = torch.zeros(R, B, P, device=dev)
         rew_buf = torch.zeros(R, B, P, device=dev); done_buf = torch.zeros(R, B, device=dev)
         for r in range(R):
@@ -158,9 +203,22 @@ def main():
                             ao, _ = op.act(obs[m])
                             sel = team1[m]
                             a[m] = torch.where(sel.unsqueeze(-1), ao, a[m])
-            inp = sim.act_from_discrete(acts_to_dict(a))
+            if pol.kind == 'raw': inpPol = sim.act_from_discrete(acts_to_dict(a))
             rewT = torch.zeros(B, P, device=dev); doneT = torch.zeros(B, dtype=torch.bool, device=dev)
             for _k in range(args.skip):
+                with torch.no_grad():
+                    if pol.kind == 'raw':
+                        inp = inpPol
+                        if scriptEnv.any():   # script (torch) controla o time 1 dessas partidas
+                            sInp = ai.think(sim)
+                            sm = scriptEnv.view(B, 1) & team1
+                            inp = {k: torch.where(sm.unsqueeze(-1) if v.dim() == 3 else sm, sInp[k], v) for k, v in inp.items()}
+                    else:   # macro: decisão mantida durante o skip; execução do script a cada tick
+                        C = AT.Ctx(sim)
+                        mac = a[..., 0]
+                        if scriptEnv.any():
+                            mac = torch.where(scriptEnv.view(B, 1) & team1, ai.choose_macro(C), mac)
+                        inp = ai.decide(C, macroFn=lambda C_, m_=mac: m_)
                 # progresso da bola antes do passo (referencial de cada time)
                 bx0 = sim.bpos[:, 0].clone()
                 playing = (sim.state == M_PLAY)
@@ -295,9 +353,10 @@ def main():
                     sim.kickoffTeam[idx] = (torch.rand(idx.numel(), device=dev) < 0.5).long()
                     sim.kickoff(idx)
                     # sorteia oponentes da liga para essas partidas
+                    rr = torch.rand(idx.numel(), device=dev)
+                    scriptEnv[idx] = rr < args.script_frac
                     if league:
-                        use = torch.rand(idx.numel(), device=dev) < args.league_frac
-                        leagueEnv[idx] = use
+                        leagueEnv[idx] = (rr >= args.script_frac) & (rr < args.script_frac + args.league_frac)
                         leagueIdx[idx] = torch.randint(0, len(league), (idx.numel(),), device=dev)
                 for k in ('shot', 'control', 'pass'):
                     if k in ev: stat['shots' if k == 'shot' else ('control' if k == 'control' else 'passes')] += float(ev[k].sum())
@@ -318,9 +377,9 @@ def main():
                 adv[r] = last
             ret = adv + val_buf
         # amostras treináveis: exclui o time 1 das partidas com oponente da liga
-        trainMask = ~(leagueEnv.view(1, B, 1) & team1.view(1, B, P)).expand(R, B, P)
+        trainMask = ~((leagueEnv | scriptEnv).view(1, B, 1) & team1.view(1, B, P)).expand(R, B, P)
         idxs = trainMask.reshape(-1).nonzero().squeeze(1)
-        O = obs_buf.reshape(-1, FT.SIZE)[idxs]; A = act_buf.reshape(-1, len(HEADS))[idxs]
+        O = obs_buf.reshape(-1, FT.SIZE)[idxs]; A = act_buf.reshape(-1, len(pol.heads))[idxs]
         LP = logp_buf.reshape(-1)[idxs]; AD = adv.reshape(-1)[idxs]; RT = ret.reshape(-1)[idxs]
         AD = (AD - AD.mean()) / (AD.std() + 1e-8)
         N = O.shape[0]
@@ -343,19 +402,19 @@ def main():
             gsteps = max(1, stat['steps']) * B
             print(f"it {it} · {(time.time() - t0) / 60:.1f} min · partidas {int(stat['matches'])} · gols/partida {stat['goals'] / m:.2f} · "
                   f"chutes/partida {stat['shots'] / m:.1f} · domínios/partida {stat['control'] / m:.1f} · passes/partida {stat['passes'] / m:.1f} (completos {stat['passOk'] / m:.1f}) · "
-                  f"pi {stats_pi / nb:.3f} v {stats_v / nb:.3f} ent {stats_ent / nb:.2f} gn {stats_gn / nb:.3f} p(move=1) {float(pol.dists(obs[:64].reshape(-1, FT.SIZE))[0].probs[:, 1].mean()):.3f} · liga {len(league)}", flush=True)
+                  f"pi {stats_pi / nb:.3f} v {stats_v / nb:.3f} ent {stats_ent / nb:.2f} gn {stats_gn / nb:.3f} p(a0=1) {float(pol.dists(obs[:64].reshape(-1, FT.SIZE))[0].probs[:, 1].mean()):.3f} · liga {len(league)}", flush=True)
             stat = dict(goals=0.0, matches=0.0, shots=0.0, control=0.0, passes=0.0, passOk=0.0, steps=0)
         if it % args.league_every == 0:
-            snap = Policy().to(dev); snap.load_state_dict(pol.state_dict()); snap.eval()
+            snap = Policy(pol.kind, pol.hid).to(dev); snap.load_state_dict(pol.state_dict()); snap.eval()
             for p_ in snap.parameters(): p_.requires_grad_(False)
             league.append(snap.state_dict()); oppPols.append(snap)
             if len(oppPols) > 6 + nFixed:   # os fixos nunca saem; o mais antigo dos demais sai
                 oppPols.pop(nFixed); league.pop(nFixed)
                 leagueIdx = torch.where(leagueIdx > nFixed, leagueIdx - 1, leagueIdx)
         if it % args.export_every == 0:
-            torch.save({'pol': pol.state_dict(), 'opt': opt.state_dict(), 'it': it}, ckpt)
+            torch.save({'pol': pol.state_dict(), 'opt': opt.state_dict(), 'it': it, 'kind': pol.kind, 'hid': pol.hid}, ckpt)
             export_js(pol, outjs, f'iteração {it}, {T}v{T}, {args.seconds}s/partida')
-    torch.save({'pol': pol.state_dict(), 'opt': opt.state_dict(), 'it': args.iters}, ckpt)
+    torch.save({'pol': pol.state_dict(), 'opt': opt.state_dict(), 'it': args.iters, 'kind': pol.kind, 'hid': pol.hid}, ckpt)
     export_js(pol, outjs, f'iteração {args.iters}')
 
 

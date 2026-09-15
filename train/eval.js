@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const { loadSim, playMatch, fitnessOf } = require('./bundle');
 const sim = loadSim();
-const txt = fs.readFileSync(path.join(__dirname, '..', 'js', 'nn_weights.js'), 'utf8');
+const txt = fs.readFileSync(process.argv[4] || path.join(__dirname, '..', 'js', 'nn_weights.js'), 'utf8');
 const json = JSON.parse(txt.slice(txt.indexOf('{'), txt.lastIndexOf('}') + 1));
 const policy = { sizes: json.sizes, w: Float32Array.from(json.w), kind: json.kind || 'raw' };
 const n = parseInt(process.argv[2] || '6', 10), sec = parseFloat(process.argv[3] || '360');
