@@ -275,7 +275,9 @@ class Game {
     // O jogador não age de imediato: acelera até a bola e executa no toque.
     if (p.queued) {
       const q = p.queued;
+      q.age = (q.age || 0) + dt;
       if (!inZone || canKick) { p.queued = null; }
+      else if (q.age > CFG.LOCK_MAX) { p.queued = null; p.recover = Math.max(p.recover, 0.15); this.events.push({ type: 'lock-expired', p }); }
       else {
         if (q.charging) {
           q.t += dt;
