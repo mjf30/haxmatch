@@ -13,6 +13,6 @@ let gf = 0, ga = 0, fit = 0;
 for (let i = 0; i < n; i++) {
   const m = playMatch(sim, policy, 'script', { seed: 500 + i, nnTeam: i % 2, seconds: sec, teamSize: 3 + (i % 3) });   // 3v3, 4v4, 5v5
   gf += m.gf; ga += m.ga; fit += fitnessOf(m);
-  console.log(`partida ${i + 1} (${3 + (i % 3)}v${3 + (i % 3)}, rede no time ${i % 2 === 0 ? 'vermelho' : 'azul'}): ${m.gf}x${m.ga} · posse ${(100 * m.poss / m.ticks).toFixed(0)}% · chutes ${m.shots} (no gol ${m.onTarget}) · passes ${m.passOk}/${m.passes} · espaçamento no ataque ${(500 * m.spread / Math.max(1, m.attackTicks || 0)).toFixed(0)}px`);
+  console.log(`partida ${i + 1} (${3 + (i % 3)}v${3 + (i % 3)}, rede no time ${i % 2 === 0 ? 'vermelho' : 'azul'}): ${m.gf}x${m.ga} · posse ${(100 * m.poss / m.ticks).toFixed(0)}% · chutes ${m.shots} (no gol ${m.onTarget}) · passes ${m.passOk}/${m.passes} (longos ${m.longOk}) · espaçamento no ataque ${(500 * m.spread / Math.max(1, m.attackTicks || 0)).toFixed(0)}px`);
 }
 console.log(`total rede ${gf} x ${ga} script · fitness média ${(fit / n).toFixed(2)} · ${json.info || ''}`);

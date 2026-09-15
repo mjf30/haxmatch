@@ -53,7 +53,7 @@ function playMatch(sim, policy, opp, opts) {
   g.time = seconds;   // partida curta
   const scenario = opts.scenario || 'match';
   setupScenario(sim, g, nnTeam, scenario, rng);
-  const m = { gf: 0, ga: 0, poss: 0, ballX: 0, shots: 0, ticks: 0, touches: 0, onTarget: 0, stall: 0, episodes: 1, scenario, passes: 0, passOk: 0, spread: 0, crowd: 0 };
+  const m = { gf: 0, ga: 0, poss: 0, ballX: 0, shots: 0, ticks: 0, touches: 0, onTarget: 0, stall: 0, episodes: 1, scenario, passes: 0, passOk: 0, longOk: 0, spread: 0, crowd: 0 };
   let lastPass = null;   // {tick, team}
   const steps = Math.floor(seconds / CFG.DT);
   const EPISODE = Math.floor((scenario === 'build' ? (opts.buildEpisode || 15) : (opts.attackEpisode || 8)) / CFG.DT);   // episódio: 8 s (ataque) / 15 s (construção) e recomeça
@@ -95,8 +95,8 @@ function playMatch(sim, policy, opp, opts) {
         // no currículo de ataque, recomeça o cenário após o gol
         if (scenario === 'attack' || scenario === 'build') { epTick = 0; m.episodes++; g.kickoff(false); setupScenario(sim, g, nnTeam, scenario, rng); }
       }
-      if ((e.type === 'pass' || (e.type === 'shot' && e.p.ai && e.p.ai.macro === 'longpass')) && e.p.team === nnTeam) { m.passes++; lastPass = { tick: i, team: nnTeam, from: e.p }; }
-      if ((e.type === 'control' || e.type === 'first-touch') && lastPass && e.p.team === nnTeam && e.p !== lastPass.from && i - lastPass.tick < 2.5 / CFG.DT) { m.passOk++; lastPass = null; }
+      if ((e.type === 'pass' || (e.type === 'shot' && e.p.ai && ['longpass', 'through', 'switch'].includes(e.p.ai.macro))) && e.p.team === nnTeam) { m.passes++; lastPass = { tick: i, team: nnTeam, from: e.p, long: e.p.ai && ['longpass', 'through', 'switch'].includes(e.p.ai.macro) }; }
+      if ((e.type === 'control' || e.type === 'first-touch') && lastPass && e.p.team === nnTeam && e.p !== lastPass.from && i - lastPass.tick < 2.5 / CFG.DT) { m.passOk++; if (lastPass.long) m.longOk++; lastPass = null; }
       if (e.type === 'shot' && e.p.team === nnTeam) {
         m.shots++;
         // chute na direção do gol adversário (linha da bola cruza a boca do gol)
@@ -124,14 +124,16 @@ function fitnessOf(m) {
     // construção: levar a bola ao ataque e finalizar; enrolar é penalizado
     return 10 * m.gf - 5 * m.ga + 1.5 * m.onTarget + 0.3 * m.shots + 1.5 * (m.ballX / t) - 0.004 * m.stall;
   }
+  // "ganhar jogando bem": gol pesa mais, mas rodar a bola, lançar e inverter também contam
   return 10 * (m.gf - m.ga)
-    + 1.5 * (m.poss / t)               // posse (peso menor: não vale segurar a bola)
+    + 4.0 * (m.poss / t)               // posse
     + 1.0 * (m.ballX / t)              // bola no campo de ataque
-    + 0.3 * Math.min(12, m.shots)      // finalizar
-    + 1.5 * Math.min(8, m.onTarget)    // finalizar no gol
+    + 0.2 * Math.min(12, m.shots)      // finalizar
+    + 1.0 * Math.min(8, m.onTarget)    // finalizar no gol
     + 0.02 * Math.min(50, m.touches)   // ir na bola
-    + 0.6 * Math.min(12, m.passOk)     // passes completados (trocar passes)
-    + 2.0 * (m.spread / Math.max(1, m.attackTicks || 0))   // espaçamento entre companheiros (com a bola)
+    + 1.0 * Math.min(30, m.passOk)     // passes completados (trocar passes)
+    + 2.0 * Math.min(8, m.longOk)      // lançamentos / profundidade / inversões que chegam
+    + 3.0 * (m.spread / Math.max(1, m.attackTicks || 0))   // espaçamento entre companheiros (com a bola)
     - 0.006 * m.crowd                  // três ou mais em cima da bola
     - 0.004 * m.stall;                 // enrolar com a bola
 }

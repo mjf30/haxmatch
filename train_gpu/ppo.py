@@ -84,6 +84,9 @@ def main():
     ap.add_argument('--league_every', type=int, default=50); ap.add_argument('--league_frac', type=float, default=0.3)
     ap.add_argument('--resume', type=str, default=None); ap.add_argument('--seed', type=int, default=1)
     ap.add_argument('--export_every', type=int, default=25)
+    ap.add_argument('--approach', type=float, default=0.02)   # shaping denso: aproximar-se da bola solta (currículo inicial)
+    ap.add_argument('--sanity', action='store_true')
+    ap.add_argument('--sanity2', action='store_true')   # teste: recompensa densa trivial (todos se aproximam da bola) para validar o PPO
     args = ap.parse_args()
     dev = torch.device('cuda')
     torch.manual_seed(args.seed)
@@ -106,8 +109,11 @@ def main():
     ckpt = os.path.join(os.path.dirname(__file__), 'ckpt.pt')
     outjs = os.path.join(os.path.dirname(__file__), '..', 'js', 'nn_raw_weights.js')
     # estatísticas
-    stat = dict(goals=0.0, matches=0.0, shots=0.0, control=0.0, passes=0.0, steps=0)
+    stat = dict(goals=0.0, matches=0.0, shots=0.0, control=0.0, passes=0.0, passOk=0.0, steps=0)
     prevScore = sim.score.clone()
+    passTick = torch.full((B,), -1e9, device=dev); passer = torch.zeros(B, dtype=torch.long, device=dev); tick = 0
+    prevDist = (sim.pos - sim.bpos.view(B, 1, 2)).norm(dim=-1)   # para o shaping de aproximação
+    W2 = CFG['FIELD_W'] / 2
     obs = FT.build(sim)
     t0 = time.time()
     for it in range(it0 + 1, args.iters + 1):
@@ -145,10 +151,47 @@ def main():
             dbx = (sim.bpos[:, 0] - bx0).view(B, 1) * sim.dir.view(1, P) / CFG['FIELD_W']
             dbx = torch.where(playing.view(B, 1), dbx.clamp(-0.05, 0.05), torch.zeros_like(dbx))
             rew += 0.3 * dbx
-            if 'shot' in ev: rew += 0.02 * ev['shot'].float()
+            if 'shot' in ev:
+                rew += 0.02 * ev['shot'].float()
+                # chute na direção do gol adversário (a trajetória reta cruza a boca do gol)
+                bv = sim.bvel; bp = sim.bpos
+                vx = bv[:, 0].view(B, 1) * sim.dir.view(1, P)
+                tcross = (W2 - bp[:, 0].view(B, 1) * sim.dir.view(1, P)) / vx.clamp(min=1e-3)
+                ycross = bp[:, 1].view(B, 1) + bv[:, 1].view(B, 1) * tcross
+                onT = ev['shot'] & (vx > 100) & (tcross > 0) & (ycross.abs() < CFG['GOAL_W'] / 2)
+                rew += 0.08 * onT.float()
+            # aproximação da bola: só o companheiro mais próximo de cada time é recompensado por se aproximar
+            dist = (sim.pos - sim.bpos.view(B, 1, 2)).norm(dim=-1)
+            closest = torch.zeros(B, P, dtype=torch.bool, device=dev)
+            for tteam in (0, 1):
+                tm = (sim.team == tteam).view(1, P).expand(B, P)
+                dd = torch.where(tm, dist, torch.full_like(dist, 1e9))
+                closest[torch.arange(B, device=dev), dd.argmin(dim=1)] = True
+            approach = ((prevDist - dist) / 100).clamp(-0.05, 0.05)
+            rew += torch.where(closest & playing.view(B, 1) & (sim.owner < 0).view(B, 1), args.approach * approach, torch.zeros_like(approach))
+            prevDist = dist
+            if args.sanity: rew = ((prevDist - dist) / 100).clamp(-0.05, 0.05) * 0 + (-dist / 1000) * 0.01
+            if args.sanity2: rew = (a[..., 0] == 1).float() * 0.1   # recompensa por escolher mover na direção 1
             if 'control' in ev: rew += 0.01 * ev['control'].float()
             if 'first' in ev: rew += 0.01 * ev['first'].float()
             if 'pass' in ev: rew += 0.01 * ev['pass'].float()
+            # passe completado: companheiro (outro jogador) domina até 2,5 s depois -> passador e receptor
+            tick += 1
+            if 'pass' in ev and ev['pass'].any():
+                pb = ev['pass'].any(dim=1)
+                passTick = torch.where(pb, torch.full_like(passTick, float(tick)), passTick)
+                passer = torch.where(pb, ev['pass'].float().argmax(dim=1), passer)
+            if 'control' in ev or 'first' in ev:
+                ctrl = (ev.get('control', torch.zeros(B, P, dtype=torch.bool, device=dev)) | ev.get('first', torch.zeros(B, P, dtype=torch.bool, device=dev)))
+                recent = (tick - passTick) < 2.5 / DT
+                sameTeam = sim.team.view(1, P) == sim.team[passer].view(B, 1)
+                notSelf = torch.arange(P, device=dev).view(1, P) != passer.view(B, 1)
+                done_pass = ctrl & recent.view(B, 1) & sameTeam & notSelf
+                if done_pass.any():
+                    rew += 0.06 * done_pass.float()
+                    rew[torch.arange(B, device=dev)[done_pass.any(dim=1)], passer[done_pass.any(dim=1)]] += 0.06
+                    stat['passOk'] += float(done_pass.sum())
+                    passTick = torch.where(done_pass.any(dim=1), torch.full_like(passTick, -1e9), passTick)
             if 'steal' in ev: rew += 0.03 * ev['steal'].float()
             if 'save' in ev: rew += 0.05 * ev['save'].float()
             # posse: pequeno bônus por tick para o time com a bola (compartilhado)
@@ -193,7 +236,7 @@ def main():
         LP = logp_buf.reshape(-1)[idxs]; AD = adv.reshape(-1)[idxs]; RT = ret.reshape(-1)[idxs]
         AD = (AD - AD.mean()) / (AD.std() + 1e-8)
         N = O.shape[0]
-        stats_pi, stats_v, stats_ent, nb = 0.0, 0.0, 0.0, 0
+        stats_pi, stats_v, stats_ent, nb, stats_gn = 0.0, 0.0, 0.0, 0, 0.0
         for ep in range(args.epochs):
             perm = torch.randperm(N, device=dev)
             for s in range(0, N, args.minibatch):
@@ -203,16 +246,17 @@ def main():
                 pl = -torch.min(ratio * AD[mb], ratio.clamp(1 - args.clip, 1 + args.clip) * AD[mb]).mean()
                 vl = F.mse_loss(v, RT[mb])
                 loss = pl + 0.5 * vl - args.ent * ent.mean()
-                opt.zero_grad(); loss.backward(); nn.utils.clip_grad_norm_(pol.parameters(), 0.5); opt.step()
-                stats_pi += float(pl); stats_v += float(vl); stats_ent += float(ent.mean()); nb += 1
+                opt.zero_grad(); loss.backward(); gn = nn.utils.clip_grad_norm_(pol.parameters(), 0.5); opt.step()
+                stats_gn = stats_gn + float(gn) if 'stats_gn' in dir() else float(gn)
+                stats_pi += float(pl.detach()); stats_v += float(vl.detach()); stats_ent += float(ent.mean().detach()); nb += 1
         # ---- log ----
         if it % 5 == 0 or it == it0 + 1:
             m = max(1.0, stat['matches'])
             gsteps = max(1, stat['steps']) * B
             print(f"it {it} · {(time.time() - t0) / 60:.1f} min · partidas {int(stat['matches'])} · gols/partida {stat['goals'] / m:.2f} · "
-                  f"chutes/partida {stat['shots'] / m:.1f} · domínios/partida {stat['control'] / m:.1f} · passes/partida {stat['passes'] / m:.1f} · "
-                  f"pi {stats_pi / nb:.3f} v {stats_v / nb:.3f} ent {stats_ent / nb:.2f} · liga {len(league)}", flush=True)
-            stat = dict(goals=0.0, matches=0.0, shots=0.0, control=0.0, passes=0.0, steps=0)
+                  f"chutes/partida {stat['shots'] / m:.1f} · domínios/partida {stat['control'] / m:.1f} · passes/partida {stat['passes'] / m:.1f} (completos {stat['passOk'] / m:.1f}) · "
+                  f"pi {stats_pi / nb:.3f} v {stats_v / nb:.3f} ent {stats_ent / nb:.2f} gn {stats_gn / nb:.3f} p(move=1) {float(pol.dists(obs[:64].reshape(-1, FT.SIZE))[0].probs[:, 1].mean()):.3f} · liga {len(league)}", flush=True)
+            stat = dict(goals=0.0, matches=0.0, shots=0.0, control=0.0, passes=0.0, passOk=0.0, steps=0)
         if it % args.league_every == 0:
             snap = Policy().to(dev); snap.load_state_dict(pol.state_dict()); snap.eval()
             for p_ in snap.parameters(): p_.requires_grad_(False)
