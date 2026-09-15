@@ -4,7 +4,7 @@
 // posições relativas ao jogador e normalizadas. Tamanho fixo (vagas vazias = zeros).
 const Features = (() => {
   const MAX_MATES = 4, MAX_OPPS = 5;
-  const SELF = 36, BALL = 14, MATE = 12, OPP = 14, GOALS = 14, MISC = 23;
+  const SELF = 38, BALL = 14, MATE = 12, OPP = 14, GOALS = 14, MISC = 23;
   const SIZE = SELF + BALL + MAX_MATES * MATE + MAX_OPPS * OPP + GOALS + MISC;
   const POS = 1 / (CFG.FIELD_W / 2);   // posições em [-1, 1]
   const VEL = 1 / 300;
@@ -110,6 +110,15 @@ const Features = (() => {
     const isFieldQ = (q) => !q.isKeeper || !g.inOwnBox(q);
     const myField = g.players.filter((q) => q.active && q.team === p.team && isFieldQ(q));
     put(isFieldQ(p) ? onHull(p, myField) : 0);                    // sou vértice do envoltório convexo do time (borda) ou estou no meio
+    {   // último homem: companheiros entre mim e o meu gol; adversários entre mim e o gol deles
+      let behind = 0, ahead = 0;
+      for (const q of g.players) {
+        if (!q.active || q === p) continue;
+        const dx = (q.pos.x - p.pos.x) * dir;
+        if (q.team === p.team) { if (dx < 0) behind++; } else if (dx > 0) ahead++;
+      }
+      put(behind / 4); put(ahead / 5);
+    }
 
     // ---- bola (12) ----
     relPos(b.pos); put(V.dist(p.pos, b.pos) * DIST);

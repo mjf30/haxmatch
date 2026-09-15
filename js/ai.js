@@ -230,7 +230,15 @@ const AI = (() => {
     const ai = p.ai;
     const ball = c.ball;
     if (p.isKeeper) return chooseKeeperMacro(p, g, c);
-    if (c.hasBall || c.firstTouch) {
+    if (c.hasBall || c.firstTouch) return chooseCarrierMacro(p, g, c);
+    return chooseOffBallMacro(p, g, c);
+  }
+
+  // com a bola (no pé ou de primeira): as mesmas opções para todo mundo, goleiro incluído
+  function chooseCarrierMacro(p, g, c) {
+    const ai = p.ai;
+    const ball = c.ball;
+    {
       if (ai.mode === 'shoot') return KICK_MACROS.includes(ai.macro) ? ai.macro : 'shoot';
       if (ai.mode === 'pass') return KICK_MACROS.includes(ai.macro) ? ai.macro : 'pass';
       const dGoal = V.dist(p.pos, c.oppGoal);
@@ -261,6 +269,11 @@ const AI = (() => {
       if (sp.free > 340 && dOpp > 120) return 'carryspace';   // muito campo aberto: conduz para o espaço
       return 'dribble';
     }
+  }
+
+  function chooseOffBallMacro(p, g, c) {
+    const ai = p.ai;
+    const ball = c.ball;
     // goleiro fora da área (ou sem goleiro) e eu sou o mais perto do gol: assumo o gol
     const keeper = c.mates.find((m) => m.isKeeper);
     if ((!keeper || !g.inOwnBox(keeper)) && ball.pos.x * c.dir < c.W2 * 0.2) {
@@ -660,21 +673,7 @@ const AI = (() => {
   function chooseKeeperMacro(p, g, c) {
     const { ball, dir, mates, opps } = c;
     const ai = p.ai;
-    if (c.hasBall) {
-      if (ai.mode === 'shoot') return ai.macro === 'longpass' ? 'longpass' : (ai.macro || 'longpass');
-      if (ai.mode === 'pass') return ai.macro === 'passback' || ai.macro === 'switch' ? ai.macro : 'pass';
-      const holdT = ai.holdT || 0;
-      if (mates.some((m) => m.callT > 0) && holdT > 0.3) return 'pass';
-      if (holdT < 0.3) return 'hold';                                   // um instante para ler o jogo
-      if (throughTarget(g, p, c)) return 'through';
-      if (switchTarget(g, p, c) && g.rng() < 0.5) return 'switch';
-      if (bestPass(g, p, mates, opps, dir, 120)) return 'pass';
-      if (safePassTarget(g, p, c)) return 'passback';
-      if (longPassTarget(g, p, c)) return 'longpass';
-      if (holdT > 1.6) return 'longpass';
-      if (!p.held && nearest(opps, p.pos).d > 160) return 'dribble';   // no pé e sem pressão: sai conduzindo
-      return 'hold';
-    }
+    if (c.hasBall) return chooseCarrierMacro(p, g, c);   // com a bola (no pé ou na mão): as mesmas opções de qualquer jogador
     const loose = !ball.owner;
     const inBox = g.inBoxPt(ball.pos, p.team);
     if (loose && inBox) {
@@ -701,24 +700,24 @@ const AI = (() => {
     };
 
     if (c.hasBall || (c.firstTouch && KICK_MACROS.includes(macro) && macro !== 'shoot')) {
-      ai.holdT = (ai.holdT || 0) + dt;
-      if (!['pass', 'passback', 'longpass', 'through', 'switch', 'dribble', 'hold'].includes(macro)) macro = 'hold';
-      // chute do goleiro = chutão para o ataque (não há gol adversário ao alcance)
+      if (GK_MACROS.includes(macro)) macro = 'hold';
+      // lançamento sem alvo: chutão para o ataque
       if (macro === 'longpass' && ai.mode !== 'shoot' && !longPassTarget(g, p, c)) {
         ai.mode = 'shoot'; ai.modeT = ai.t;
         ai.aim = { x: oppGoal.x * 0.55, y: (g.rng() - 0.5) * 500 };
         ai.chargeT = 0.75 * CFG.CHARGE_MAX;
       }
-      if (macro === 'hold' && !p.held) macro = c.hasBall ? 'dribble' : 'gk_rush';   // sem a bola nas mãos, "segurar" = conduzir devagar
-      if (macro === 'gk_rush') { /* cai para a execução sem bola abaixo */ } else {
-      if (macro === 'hold') { inp.aim = oppGoal; return inp; }   // com a bola nas mãos: espera
-      // passe do goleiro com a bola nas mãos e alvo longe: arremesso
+      if (p.held) {
+        // bola na mão: chute e passe são iguais mecanicamente; "conduzir" solta a bola no pé,
+        // "segurar" espera protegido pela zona de repulsão
+        if (macro === 'dribble' || macro === 'carryspace') { inp.special = true; inp.aim = oppGoal; return inp; }
+        if (macro === 'hold') { inp.aim = oppGoal; return inp; }
+      }
       const out = execute(p, g, dt, c, macro, inp);
+      // passe com a bola na mão e alvo longe: arremesso
       if (ai.mode === 'pass' && p.held && ai.aim && V.dist(p.pos, ai.aim) > 320 && inp.pass) { inp.throwBall = true; inp.pass = false; }
       return out;
-      }
     }
-    ai.holdT = 0;
     if (!GK_MACROS.includes(macro)) macro = 'gk_angle';
 
     const toBall = V.sub(ball.pos, ownGoal), dBall = V.len(toBall);

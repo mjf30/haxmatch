@@ -5,7 +5,7 @@ import torch
 from sim_torch import CFG, ACT_NONE, ST_DRIB, ST_DEF, CH_SHOT, Q_NONE, M_PLAY
 
 MAX_MATES, MAX_OPPS = 4, 5
-SELF, BALL, MATE, OPP, GOALS, MISC = 36, 14, 12, 14, 14, 23
+SELF, BALL, MATE, OPP, GOALS, MISC = 38, 14, 12, 14, 14, 23
 SIZE = SELF + BALL + MAX_MATES * MATE + MAX_OPPS * OPP + GOALS + MISC   # 135
 GX, GY = 12, 7
 
@@ -87,6 +87,11 @@ def build(sim):
     isExt = (proj >= mx - 1e-3).any(dim=-1).float()                              # [B,p]
     nField = (sameInc.expand(B, -1, -1) & fieldMask.view(B, 1, P)).sum(-1).float()
     put((torch.where(nField <= 2, torch.ones_like(isExt), isExt) * fieldMask.float()).unsqueeze(-1))
+    # último homem: companheiros entre mim e o meu gol; adversários entre mim e o gol deles
+    dxq = (sim.pos[..., 0].view(B, 1, P) - sim.pos[..., 0].view(B, P, 1)) * dirp.view(1, P, 1)   # [B,p,q]
+    same = (team.view(1, P, 1) == team.view(1, 1, P)) & ~torch.eye(P, dtype=torch.bool, device=d).view(1, P, P)
+    put(((same & (dxq < 0)).sum(-1).float() / 4).unsqueeze(-1))
+    put(((opp & (dxq > 0)).sum(-1).float() / 5).unsqueeze(-1))
 
     # ---- bola (12) ----
     bp = sim.bpos.view(B, 1, 2).expand(B, P, 2)
