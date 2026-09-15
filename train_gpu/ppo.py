@@ -13,7 +13,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 sys.path.insert(0, os.path.dirname(__file__))
-from sim_torch import TorchSim, CFG, DT, M_PLAY
+from sim_torch import TorchSim, CFG, DT, M_PLAY, MOVE_DIRS, AIM_SECTORS
 import features_torch as FT
 import ai_torch as AT
 
@@ -104,6 +104,22 @@ class Policy(nn.Module):
 
 def acts_to_dict(a):
     return {name: a[..., i] for i, (name, _) in enumerate(HEADS)}
+
+
+def discretize_input(sim, inp):
+    """input contínuo do script -> índices das cabeças do controle total [B,P,9] (alvo do guia)"""
+    B, P = sim.B, sim.P
+    flip = sim.dir.view(1, P)
+    mv = torch.stack([inp['mx'] * flip, inp['my']], -1)                                   # referencial do time
+    md = MOVE_DIRS.to(sim.dev)
+    move = ((mv.unsqueeze(2) - md.view(1, 1, -1, 2)) ** 2).sum(-1).argmin(-1)
+    move = torch.where(mv.norm(dim=-1) < 0.3, torch.zeros_like(move), move)
+    rel = inp['aim'] - sim.pos
+    ang = torch.atan2(rel[..., 1], rel[..., 0] * flip)
+    sector = torch.round(ang / (2 * math.pi / AIM_SECTORS)).long() % AIM_SECTORS
+    curve = torch.ones_like(move)                                                          # sem efeito
+    cols = [move, sector, curve] + [inp[k].long() for k in ('shoot', 'pas', 'sprint', 'stance', 'special', 'tackle')]
+    return torch.stack(cols, -1)
 
 
 SKIP = 1
@@ -234,7 +250,7 @@ def main():
         cur['scale'] = max(0.0, 1.0 - it / args.curriculum) if args.curriculum > 0 else 1.0
         obs_buf = torch.zeros(R, B, P, FT.SIZE, device=dev)
         act_buf = torch.zeros(R, B, P, len(pol.heads), dtype=torch.long, device=dev)
-        guide_buf = torch.zeros(R, B, P, dtype=torch.long, device=dev)   # macro que o script v2 escolheria (híbrido guiado)
+        guide_buf = torch.zeros(R, B, P, len(pol.heads), dtype=torch.long, device=dev)   # ação que o script escolheria (guia): macro, ou input discretizado
         logp_buf = torch.zeros(R, B, P, device=dev); val_buf = torch.zeros(R, B, P, device=dev)
         rew_buf = torch.zeros(R, B, P, device=dev); done_buf = torch.zeros(R, B, device=dev)
         for r in range(R):
@@ -255,16 +271,18 @@ def main():
                 with torch.no_grad():
                     if pol.kind == 'raw':
                         inp = inpPol
-                        if scriptEnv.any():   # script (torch) controla o time 1 dessas partidas
+                        if scriptEnv.any() or (args.guide > 0 and _k == 0):   # script (torch): adversário e/ou guia
                             sInp = ai.think(sim)
-                            sm = scriptEnv.view(B, 1) & team1
-                            inp = {k: torch.where(sm.unsqueeze(-1) if v.dim() == 3 else sm, sInp[k], v) for k, v in inp.items()}
+                            if _k == 0 and args.guide > 0: guide_buf[r] = discretize_input(sim, sInp)
+                            if scriptEnv.any():
+                                sm = scriptEnv.view(B, 1) & team1
+                                inp = {k: torch.where(sm.unsqueeze(-1) if v.dim() == 3 else sm, sInp[k], v) for k, v in inp.items()}
                     else:   # macro: decisão mantida durante o skip; execução do script a cada tick
                         C = AT.Ctx(sim)
                         mac = a[..., 0]
                         if scriptEnv.any() or (args.guide > 0 and _k == 0):
                             sm = ai.choose_macro(C)
-                            if _k == 0: guide_buf[r] = sm
+                            if _k == 0: guide_buf[r, ..., 0] = sm
                             mac = torch.where(scriptEnv.view(B, 1) & team1, sm, mac)
                         inp = ai.decide(C, macroFn=lambda C_, m_=mac: m_)
                 # progresso da bola antes do passo (referencial de cada time)
@@ -443,7 +461,7 @@ def main():
         trainMask = ~((leagueEnv | scriptEnv).view(1, B, 1) & team1.view(1, B, P)).expand(R, B, P)
         idxs = trainMask.reshape(-1).nonzero().squeeze(1)
         O = obs_buf.reshape(-1, FT.SIZE)[idxs]; A = act_buf.reshape(-1, len(pol.heads))[idxs]
-        LP = logp_buf.reshape(-1)[idxs]; AD = adv.reshape(-1)[idxs]; RT = ret.reshape(-1)[idxs]; GD = guide_buf.reshape(-1)[idxs]
+        LP = logp_buf.reshape(-1)[idxs]; AD = adv.reshape(-1)[idxs]; RT = ret.reshape(-1)[idxs]; GD = guide_buf.reshape(-1, len(pol.heads))[idxs]
         beta = (max(args.guide_floor, args.guide * (1 - it / args.guide_decay)) if args.guide_decay > 0 else args.guide) if args.guide > 0 else 0.0
         AD = (AD - AD.mean()) / (AD.std() + 1e-8)
         N = O.shape[0]
@@ -458,7 +476,7 @@ def main():
                 vl = F.mse_loss(v, RT[mb])
                 loss = pl + 0.5 * vl - args.ent * ent.mean()
                 if beta > 0:
-                    gl = -pol.dists(O[mb])[0].log_prob(GD[mb]).mean()   # guia: segue a decisão do script v2
+                    gl = -sum(d.log_prob(GD[mb][..., i]) for i, d in enumerate(pol.dists(O[mb]))).mean()   # guia: segue a decisão do script (macro ou input discretizado)
                     loss = loss + beta * gl; stats_gl = stats_gl + float(gl.detach()) if 'stats_gl' in dir() else float(gl.detach())
                 opt.zero_grad(); loss.backward(); gn = nn.utils.clip_grad_norm_(pol.parameters(), 0.5); opt.step()
                 stats_gn = stats_gn + float(gn) if 'stats_gn' in dir() else float(gn)
