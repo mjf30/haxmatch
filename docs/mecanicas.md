@@ -61,10 +61,8 @@ maior; goleiro dentro da área pega qualquer bola.
 ação agendada (chute continua carregando enquanto o botão está segurado). Chute e passe
 (botões segurados) podem ser pré-carregados antes de a bola entrar na zona: armam
 no instante em que ela entra, sem apertar de novo; o push (Espaço) é um toque e
-precisa ser apertado com a bola já na zona. O movimento é redirecionado para a bola; no
-primeiro toque de primeira da sequência com passo acelerado (limitado ao sprint),
-do segundo em diante, sem ter dominado no meio, em velocidade normal, para não
-ser mais rápido que correr sem bola. No contato a ação dispara. Sair da zona ou
+precisa ser apertado com a bola já na zona. O movimento é redirecionado para a bola na
+velocidade normal do jogador (sem nenhum boost). No contato a ação dispara. Sair da zona ou
 a bola ser dominada por outro cancela.
 
 ### Push ball (empurrar e correr)

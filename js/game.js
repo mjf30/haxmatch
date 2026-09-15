@@ -353,12 +353,10 @@ class Game {
     if (p.recover > 0) base *= CFG.MUL_RECOVER;
     let desired = { x: inp.mx * base, y: inp.my * base };
     if (p.queued) {
-      // passo em direção à bola para executar a ação de primeira. Só o primeiro
-      // toque de primeira da sequência ganha o passo acelerado (equivale ao domínio,
-      // corrige o rumo); do segundo em diante corre atrás em velocidade normal.
+      // com ação de primeira agendada o jogador vai em direção à bola, na
+      // velocidade normal do estado dele (sem boost algum)
       const toBall = V.norm(V.sub(this.ball.pos, p.pos));
-      const boost = p.touchChain === 0 ? Math.min(CFG.SPEED * CFG.ACTION_ZONE_SPEED, CFG.SPRINT) : base;
-      desired = V.mul(toBall, Math.max(V.len(desired), boost));
+      desired = V.mul(toBall, base);
     }
     const diff = V.sub(desired, p.vel);
     const dl = V.len(diff);

@@ -31,7 +31,6 @@ const CFG = {
 
   // ---- domínio ----
   ACTION_RADIUS: 70,                // zona de ação: bola solta a essa distância do corpo permite agendar chute/passe/push de primeira
-  ACTION_ZONE_SPEED: 1.3,           // passo até a bola no 1º toque de primeira (limitado ao sprint); do 2º em sequência é velocidade normal
   CONTROL_MAX: 600,                 // acima disso a bola rebate no corpo
   CONTROL_MAX_DEF: 850,            // postura defensiva domina bolas mais fortes
   HITBOX_MUL: 1.0,                  // sem postura defensiva, a hitbox para a bola é só o corpo
