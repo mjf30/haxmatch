@@ -66,6 +66,7 @@ class Game {
       }
     }
     this.ball = { pos: { x: 0, y: 0 }, vel: { x: 0, y: 0 }, spin: 0, r: CFG.BALL_R, owner: null, lastTouch: null, prevTouch: null, lastTeam: -1, rot: 0 };
+    this.kickoffTeam = this.rng() < 0.5 ? 0 : 1;   // primeiro kickoff: time sorteado
     this.kickoff(true);
   }
 
@@ -83,6 +84,19 @@ class Game {
     }
     const b = this.ball;
     b.pos = { x: 0, y: 0 }; b.vel = { x: 0, y: 0 }; b.spin = 0; b.owner = null;
+    // saída: um jogador do time que dá o kickoff fica no meio com a bola, de frente
+    // para o próprio campo (de costas para o ataque)
+    const team = this.kickoffTeam;
+    const dir = team === 0 ? 1 : -1;
+    const cands = this.players.filter((p) => p.team === team && p.active && p.idx !== 0);
+    const kicker = cands.sort((a, c) => (c.human ? 1 : 0) - (a.human ? 1 : 0) || c.idx - a.idx)[0]
+      || this.players.find((p) => p.team === team && p.active);
+    if (kicker) {
+      kicker.pos = { x: -dir * (kicker.r + 4), y: 0 };
+      kicker.facing = { x: -dir, y: 0 }; kicker.moveDir = { x: -dir, y: 0 };
+      b.owner = kicker; b.lastTouch = kicker; b.lastTeam = team; kicker.held = false;
+      b.pos = { x: -dir * (kicker.r * 2 + b.r + CFG.CARRY_DIST + 4), y: 0 };
+    }
     this.state = 'kickoff';
     this.stateT = CFG.KICKOFF_FREEZE;
     this.msg = null;
@@ -824,6 +838,7 @@ class Game {
   }
   goal(team) {
     this.score[team]++;
+    this.kickoffTeam = 1 - team;
     this.state = 'goal';
     this.stateT = CFG.GOAL_PAUSE;
     const scorer = this.ball.owner || this.ball.lastTouch;

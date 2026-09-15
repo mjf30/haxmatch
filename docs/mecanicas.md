@@ -9,7 +9,8 @@ ou chapéus).
 - Arena fechada por paredes em todos os lados: a bola quica, não existe lateral,
   escanteio ou tiro de meta.
 - Sem faltas, sem impedimento, sem cartões, sem árbitro. O jogo nunca para,
-  exceto após gol (reinício no centro).
+  exceto após gol (reinício no centro: um jogador do time que sofreu o gol fica no
+  meio com a bola, de frente para o próprio campo; o primeiro kickoff é sorteado).
 - Partidas de 6 minutos, modos 3v3 / 4v4 / 5v5, cada pessoa controla 1 jogador.
   Regra de misericórdia: 4 gols de vantagem encerra.
 - O primeiro jogador do time a entrar na própria área após o kickoff recebe as
