@@ -36,18 +36,21 @@ class NetHost {
           conn.send({ t: 'welcome', pid, teamSize: this.h.teamSize, seed: this.h.seed });
         } else if (d.t === 'input' && pid !== null) {
           this.h.onInput(pid, d.i);
+        } else if (d.t === 'pong' && pid !== null && typeof d.ts === 'number') {
+          this.h.onPing(pid, performance.now() - d.ts);
         }
       });
       const bye = () => { if (pid !== null && this.conns.has(conn)) { this.conns.delete(conn); this.h.onLeave(pid); pid = null; } };
       conn.on('close', bye);
       conn.on('error', bye);
     });
+    this.pingTimer = setInterval(() => this.broadcast({ t: 'ping', ts: performance.now() }), 1000);
   }
   broadcast(msg) {
     for (const conn of this.conns.keys()) if (conn.open) { try { conn.send(msg); } catch (e) { /* conexão caindo */ } }
   }
   get count() { return this.conns.size; }
-  destroy() { try { this.peer.destroy(); } catch (e) { /* já fechado */ } }
+  destroy() { clearInterval(this.pingTimer); try { this.peer.destroy(); } catch (e) { /* já fechado */ } }
 }
 
 class NetGuest {
@@ -65,6 +68,7 @@ class NetGuest {
         if (!d || typeof d !== 'object') return;
         if (d.t === 'welcome') this.h.onWelcome(d);
         else if (d.t === 'state') this.h.onState(d);
+        else if (d.t === 'ping') conn.send({ t: 'pong', ts: d.ts });
         else if (d.t === 'full') this.h.onClose('Sala cheia.');
       });
       conn.on('close', () => this.h.onClose('Conexão encerrada pelo host.'));

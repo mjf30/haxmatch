@@ -265,35 +265,25 @@ const AI = (() => {
     if (ball.owner && ball.owner.team !== team && g.inBoxPt(ball.pos, team)) {
       const d = V.dist(p.pos, ball.pos);
       if (d < 58 && p.cd.tackle <= 0) inp.tackle = true;
-      if (d < 120) target = ball.pos;
+      if (d < 160) { target = ball.pos; sprint = true; }
     }
     moveTo(target, sprint);
     inp.aim = ball.pos;
     inp.stance = dBall < 300 && speed < 260 && !sprint && !inp.tackle;
 
-    // mergulho: para o ponto de interceptação (chute cruzando minha linha ou
-    // bola escapando para o gol mais rápido do que consigo correr)
-    if (loose && p.cd.dive <= 0 && speed > 180) {
-      let pt = null;
-      if (towardMe) {
-        const tx = (p.pos.x - ball.pos.x) / ball.vel.x;
-        if (tx > 0.02 && tx < 0.6) {
-          const yAt = ball.pos.y + ball.vel.y * tx;
-          if (Math.abs(yAt) < CFG.GOAL_W / 2 + 40) pt = { x: p.pos.x, y: yAt };
-        }
-      }
-      if (!pt) {
-        const pr = predictBall(g, 0.3);
-        const passingMe = (pr.x - p.pos.x) * dir < -10 && Math.abs(pr.y) < CFG.GOAL_W / 2 + 60;
-        if (passingMe && V.dist(p.pos, pr) < 140) pt = pr;
-      }
-      if (pt) {
-        const dv = V.sub(pt, p.pos), d = V.len(dv);
-        if (d > 22 && d < 170) {
-          const n = V.norm(dv);
+    // mergulho: último recurso. Só quando é chute a gol que cruza a minha
+    // linha num ponto que eu NÃO alcanço correndo a tempo.
+    if (loose && p.cd.dive <= 0 && towardMe && speed > 260) {
+      const tx = (p.pos.x - ball.pos.x) / ball.vel.x;
+      if (tx > 0.02 && tx < 0.7) {
+        const yAt = ball.pos.y + ball.vel.y * tx;
+        const dy = yAt - p.pos.y;
+        const onTarget = Math.abs(yAt) < CFG.GOAL_W / 2 + 12;
+        const reachRunning = Math.abs(dy) < CFG.SPRINT * tx + 20;
+        if (onTarget && !reachRunning && Math.abs(dy) < 190) {
           inp.special = true; inp.stance = false; inp.tackle = false;
-          inp.mx = n.x; inp.my = n.y;
-          inp.aim = pt;
+          inp.mx = 0; inp.my = Math.sign(dy);
+          inp.aim = { x: p.pos.x, y: yAt };
         }
       }
     }

@@ -24,6 +24,7 @@ const NetState = (() => {
         p.queued ? p.queued.kind : '', p.queued ? p.queued.t : 0,
         p.queued && p.queued.dir0 ? p.queued.dir0.x : 0, p.queued && p.queued.dir0 ? p.queued.dir0.y : 0, p.queued ? p.queued.spin || 0 : 0,
         p.stamina, p.effortBar, p.effortT, p.pushFlash, p.callT, p.sprinting ? 1 : 0, p.moving ? 1 : 0, p.human ? 1 : 0, p.name, p.active ? 1 : 0,
+        p.stats.goals, p.stats.assists, p.stats.steals, p.stats.saves, Math.round(p.ping),
       ]),
       ev: events.filter((e) => FLASH_EVENTS.has(e.type)).map((e) => ({ type: e.type, p: e.p ? e.p.id : -1, v: e.victim ? e.victim.id : -1, team: e.team })),
     };
@@ -48,6 +49,7 @@ const NetState = (() => {
       p.queued = qk ? { kind: qk, t: qt, dir0: { x: qdx, y: qdy }, spin: qs } : null;
       p.stamina = a[k++]; p.effortBar = a[k++]; p.effortT = a[k++]; p.pushFlash = a[k++]; p.callT = a[k++];
       p.sprinting = !!a[k++]; p.moving = !!a[k++]; p.human = !!a[k++]; p.name = a[k++]; p.active = !!a[k++];
+      p.stats.goals = a[k++]; p.stats.assists = a[k++]; p.stats.steals = a[k++]; p.stats.saves = a[k++]; p.ping = a[k++];
     });
     const b = game.ball, bb = s.ball;
     b.pos = { x: bb[0], y: bb[1] }; b.vel = { x: bb[2], y: bb[3] }; b.spin = bb[4];

@@ -291,6 +291,46 @@ class Renderer {
     this.flash = this.flash.filter((f) => f.t < 1.2);
   }
 
+  drawScoreboard(game, human) {
+    const ctx = this.ctx;
+    const w = this.w, h = this.h;
+    const cols = [['Jogador', 190], ['G', 40], ['A', 40], ['Roubos', 70], ['Defesas', 70], ['Ping', 60]];
+    const tw = cols.reduce((s, c) => s + c[1], 0) + 40;
+    const rows = game.players.filter((p) => p.active);
+    const th = 60 + rows.length * 24 + 40;
+    const x0 = w / 2 - tw / 2, y0 = h / 2 - th / 2;
+    ctx.fillStyle = 'rgba(0,0,0,0.78)';
+    ctx.fillRect(x0, y0, tw, th);
+    ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 1; ctx.strokeRect(x0, y0, tw, th);
+    ctx.font = 'bold 20px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = CFG.TEAM_COLORS[0]; ctx.fillText(`${CFG.TEAM_NAMES[0]} ${game.score[0]}`, x0 + tw / 2 - 80, y0 + 22);
+    ctx.fillStyle = '#fff'; ctx.fillText('x', x0 + tw / 2, y0 + 22);
+    ctx.fillStyle = CFG.TEAM_COLORS[1]; ctx.fillText(`${game.score[1]} ${CFG.TEAM_NAMES[1]}`, x0 + tw / 2 + 80, y0 + 22);
+    let y = y0 + 52;
+    ctx.font = 'bold 12px sans-serif'; ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    let x = x0 + 20;
+    for (const [name, cw] of cols) { ctx.textAlign = name === 'Jogador' ? 'left' : 'center'; ctx.fillText(name, name === 'Jogador' ? x : x + cw / 2, y); x += cw; }
+    y += 18;
+    ctx.font = '13px sans-serif';
+    for (let team = 0; team < 2; team++) {
+      for (const p of rows.filter((q) => q.team === team)) {
+        if (p === human) { ctx.fillStyle = 'rgba(255,255,255,0.12)'; ctx.fillRect(x0 + 8, y - 11, tw - 16, 22); }
+        x = x0 + 20;
+        ctx.fillStyle = CFG.TEAM_COLORS[team]; ctx.beginPath(); ctx.arc(x + 6, y, 5, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#fff'; ctx.textAlign = 'left';
+        ctx.fillText(`${p.name}${p.isKeeper ? ' (G)' : ''}${p.human ? '' : ' · bot'}`, x + 18, y);
+        x += cols[0][1];
+        const ping = p.human ? (p.ping > 0 ? `${Math.round(p.ping)} ms` : (p === human && this.roomCode ? '—' : 'host')) : '—';
+        const vals = [p.stats.goals, p.stats.assists, p.stats.steals, p.stats.saves, p.human ? ping : '—'];
+        ctx.textAlign = 'center';
+        vals.forEach((v, i) => { const cw = cols[i + 1][1]; ctx.fillText(String(v), x + cw / 2, y); x += cw; });
+        y += 24;
+      }
+    }
+    ctx.font = '11px sans-serif'; ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.textAlign = 'center';
+    ctx.fillText('G gols · A assistências · Roubos: tackles e carrinhos certos · Defesas: mergulhos do goleiro', x0 + tw / 2, y0 + th - 16);
+  }
+
   // ---------- HUD ----------
   drawHUD(game, human) {
     const ctx = this.ctx;
@@ -352,6 +392,8 @@ class Renderer {
       ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(w / 2 - 260, 60, 520, 22);
       ctx.fillStyle = '#ffe66d'; ctx.fillText(txt, w / 2, 64);
     }
+    // placar detalhado (Tab)
+    if (this.showScoreboard) this.drawScoreboard(game, human);
     // ajuda
     if (this.showHelp) {
       const lines = [
@@ -360,7 +402,7 @@ class Renderer {
         'Espaço: push ball (com bola) / drible (Ctrl+bola) / dash (Ctrl sem bola) / mergulho do goleiro',
         'E tackle · Shift+E carrinho · Ctrl (ou C) postura · F arremesso do goleiro',
         'Bola brilhando = zona de ação: LMB/RMB/Espaço agendam a ação, executada no toque · Shift 2x com bola = arrancada',
-        'Tab troca jogador · R reinicia · H esconde esta ajuda',
+        'Tab placar/ping · Q troca jogador (solo) · R reinicia · H esconde esta ajuda',
         'Enter: tela cheia (bloqueia Ctrl+W e outros atalhos do navegador)',
       ];
       ctx.font = '12px sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'top';

@@ -32,6 +32,8 @@ function makePlayer(id, team, idx, home, name) {
     queued: null,            // ação de primeira agendada na zona de ação: {kind:'shot'|'pass'|'push', t, charging, dir0, lastAngle, spin}
     held: false, holdT: 0,   // goleiro com a bola nas mãos
     pushFlash: 0, callT: 0, fakeT: 0,
+    stats: { goals: 0, assists: 0, steals: 0, saves: 0 },
+    ping: 0,                 // ms (só faz sentido em rede)
     ai: {},
   };
 }
@@ -61,7 +63,7 @@ class Game {
         this.players.push(makePlayer(id++, team, i, home, name));
       }
     }
-    this.ball = { pos: { x: 0, y: 0 }, vel: { x: 0, y: 0 }, spin: 0, r: CFG.BALL_R, owner: null, lastTouch: null, lastTeam: -1, rot: 0 };
+    this.ball = { pos: { x: 0, y: 0 }, vel: { x: 0, y: 0 }, spin: 0, r: CFG.BALL_R, owner: null, lastTouch: null, prevTouch: null, lastTeam: -1, rot: 0 };
     this.kickoff(true);
   }
 
@@ -98,6 +100,21 @@ class Game {
   clampField(pt, m = 0) {
     return { x: V.clamp(pt.x, -CFG.FIELD_W / 2 + m, CFG.FIELD_W / 2 - m), y: V.clamp(pt.y, -CFG.FIELD_H / 2 + m, CFG.FIELD_H / 2 - m) };
   }
+  // limites da arena com a boca do gol aberta: dá para entrar no gol com a bola no pé
+  static clampArena(pt, r) {
+    const W2 = CFG.FIELD_W / 2, H2 = CFG.FIELD_H / 2;
+    const mouth = Math.abs(pt.y) < CFG.GOAL_W / 2 - r;
+    const p = { x: pt.x, y: pt.y };
+    if (Math.abs(p.x) > W2) {
+      // dentro do gol: só se estiver na boca; senão volta para a linha
+      if (!mouth) p.x = V.clamp(p.x, -W2 + r, W2 - r);
+      else p.x = V.clamp(p.x, -W2 - CFG.GOAL_D + r, W2 + CFG.GOAL_D - r);
+      if (Math.abs(p.x) > W2) p.y = V.clamp(p.y, -CFG.GOAL_W / 2 + r, CFG.GOAL_W / 2 - r);
+    } else {
+      p.y = V.clamp(p.y, -H2 + r, H2 - r);
+    }
+    return p;
+  }
   hasBall(p) { return this.ball.owner === p && !p.held; }
   // bola solta perto o bastante para agir de primeira (zona de ação)
   ballInZone(p) {
@@ -129,6 +146,14 @@ class Game {
     if (this.state === 'play') this.updateGloves(dt);
     if (this.state === 'play') this.checkGoal();
     for (const p of this.players) p.prevInput = p.input;
+    // estatísticas a partir dos eventos deste passo
+    for (const e of this.events) {
+      if ((e.type === 'steal' || e.type === 'tackle-win' || e.type === 'slide-hit') && e.p) e.p.stats.steals++;
+      if ((e.type === 'save' || e.type === 'parry') && e.p) e.p.stats.saves++;
+    }
+    // quem tocou antes do último toque (para assistência)
+    const b = this.ball;
+    if (b.lastTouch !== this._seenTouch) { b.prevTouch = this._seenTouch || null; this._seenTouch = b.lastTouch; }
   }
 
   // ---------- jogador ----------
@@ -633,7 +658,7 @@ class Game {
           const n = dd > 1e-6 ? V.norm(V.sub(b.pos, o.pos)) : dir;
           b.pos = V.add(o.pos, V.mul(n, minD));
         }
-        b.pos = this.clampField(b.pos, b.r);
+        b.pos = Game.clampArena(b.pos, b.r);
         // perdeu o controle (bola ficou longe demais do pé)
         if (V.dist(b.pos, o.pos) > o.r + b.r + CFG.CARRY_LOSE) { b.owner = null; o.cd.grab = 0.1; }
       }
@@ -730,7 +755,7 @@ class Game {
   }
 
   clampPlayer(p) {
-    p.pos = this.clampField(p.pos, p.r);
+    p.pos = Game.clampArena(p.pos, p.r);
     if (p.held && this.ball.owner === p) {
       const W2 = CFG.FIELD_W / 2;
       const lo = p.team === 0 ? -W2 + p.r : W2 - CFG.BOX_W + p.r;
@@ -751,8 +776,14 @@ class Game {
     this.score[team]++;
     this.state = 'goal';
     this.stateT = CFG.GOAL_PAUSE;
-    const scorer = this.ball.lastTouch;
+    const scorer = this.ball.owner || this.ball.lastTouch;
+    if (this.ball.owner) { this.ball.lastTouch = this.ball.owner; this.ball.owner = null; this.ball.vel = { x: 0, y: 0 }; }
     const own = scorer && scorer.team !== team;
+    if (scorer && !own) {
+      scorer.stats.goals++;
+      const pv = this.ball.prevTouch;
+      if (pv && pv !== scorer && pv.team === team) pv.stats.assists++;
+    }
     this.msg = `GOL ${CFG.TEAM_NAMES[team].toUpperCase()}!` + (scorer ? (own ? ` (contra, ${scorer.name})` : ` (${scorer.name})`) : '');
     for (const p of this.players) { p.charge = null; }
     this.events.push({ type: 'goal', team, scorer });

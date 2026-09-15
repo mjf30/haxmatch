@@ -99,6 +99,7 @@
         if (!withBots) { p.active = false; if (game.ball.owner === p) game.ball.owner = null; p.pos = { x: 0, y: -CFG.FIELD_H }; }
         remoteQueues.delete(pid); remoteLast.delete(pid); remoteNames.delete(pid);
       },
+      onPing(pid, rtt) { if (game && game.players[pid]) game.players[pid].ping = rtt; },
       onInput(pid, inp) {
         const q = remoteQueues.get(pid);
         if (!q) return;
@@ -165,7 +166,7 @@
   const input = new HumanInput(canvas, {
     onKey(code) {
       if (!game) return;
-      if (code === 'Tab' && mode === 'solo') switchPlayer();
+      if (code === 'KeyQ' && mode === 'solo') switchPlayer();
       if (code === 'KeyR' && mode !== 'guest') { game.reset(); restoreHumans(); }
       if (code === 'KeyH') renderer.showHelp = !renderer.showHelp;
       if (code === 'KeyP' && mode === 'solo') paused = !paused;
@@ -232,6 +233,7 @@
       if (mode === 'guest') guestFrame(frameDt);
       else if (!paused) simFrame(frameDt);
       const human = game.players[humanId];
+      renderer.showScoreboard = input.down('Tab');
       renderer.updateCamera(game, human, frameDt);
       renderer.draw(game, human, frameDt);
     }
