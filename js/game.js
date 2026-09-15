@@ -303,7 +303,7 @@ class Game {
 
     // ---- sem a bola nos pés ----
     if (pressed('tackle')) {
-      if (p.sprinting && p.moving) { if (p.cd.slide <= 0 && p.stamina >= 10) this.startSlide(p); }
+      if (p.sprinting && p.moving) { if (p.cd.slide <= 0 && p.stamina >= 6) this.startSlide(p); }
       else if (p.cd.tackle <= 0) this.startTackle(p);
       return;
     }

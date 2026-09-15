@@ -150,7 +150,7 @@ const AI = (() => {
         const d = V.sub(o.pos, p.pos), l = V.len(d);
         return l < 230 && V.dot(V.norm(d), steer) > 0.55;
       });
-      if (clearAhead && p.stamina > 15) {
+      if (clearAhead && p.stamina > 10) {
         inp.sprint = true;
         if (p.cd.grab <= 0) inp.special = true;          // push ball
       } else if (dOpp < 80) {
@@ -187,7 +187,7 @@ const AI = (() => {
         const toBall = V.norm(V.sub(ball.pos, p.pos));
         if (d < 54 && p.cd.tackle <= 0 && V.dot(toBall, p.moveDir) > 0.2) {
           inp.tackle = true; inp.sprint = false;
-        } else if (d > 70 && d < 135 && p.cd.slide <= 0 && p.stamina > 30 &&
+        } else if (d > 70 && d < 135 && p.cd.slide <= 0 && p.stamina > 18 &&
           V.dot(carrier.vel, V.sub(carrier.pos, p.pos)) > 40 && V.len(carrier.vel) > 130 && g.rng() < 0.15) {
           inp.sprint = true; inp.tackle = true; inp.stance = false;
         }
