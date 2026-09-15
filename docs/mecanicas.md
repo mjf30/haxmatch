@@ -100,7 +100,9 @@ nos pés empurra a bola automaticamente enquanto a arrancada dura.
 
 **2D:** direção fixada no momento em que LMB é pressionado; o deslocamento angular
 do mouse durante a carga vira spin lateral; força escala com o tempo segurado;
-spin efetivo diminui com a força. Preview da trajetória curva é desenhado.
+spin efetivo diminui com a força. Ao atingir a carga máxima (0,62 s) o chute sai
+sozinho; o passe idem em 0,4 s. Não dá para segurar indefinidamente. Preview da
+trajetória curva é desenhado.
 
 ### Passe
 - RMB = "tap", passe rasteiro na direção mirada; não é guiado automaticamente.

@@ -344,10 +344,11 @@ class Game {
         const a = V.angle(p.facing);
         c.spin = V.clamp(c.spin + V.angleDiff(c.lastAngle, a) * CFG.SPIN_GAIN, -CFG.SPIN_MAX, CFG.SPIN_MAX);
         c.lastAngle = a;
-        if (released('shoot')) { this.shoot(p, c); p.charge = null; }
+        // carga cheia: o chute sai sozinho (não dá para segurar indefinidamente)
+        if (released('shoot') || c.t >= CFG.CHARGE_MAX) { this.shoot(p, c); p.charge = null; p.armed.shoot = false; }
         else if (pressed('special') || pressed('pass')) { p.charge = null; p.fakeT = 0.3; this.events.push({ type: 'fake', p }); }
-      } else if (released('pass')) {
-        this.pass(p, c); p.charge = null;
+      } else if (released('pass') || c.t >= CFG.PASS_CHARGE) {
+        this.pass(p, c); p.charge = null; p.armed.pass = false;
       }
       return;
     }
