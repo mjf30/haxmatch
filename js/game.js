@@ -293,7 +293,7 @@ class Game {
       if (held && pressed('throwBall')) { this.throwBall(p); return; }
       if (pressed('special')) {
         if (held) { p.held = false; p.holdT = 0; return; }                     // solta e conduz
-        if (p.stance === 'drib') { if (p.cd.dribble <= 0) this.startDribble(p); return; }
+        if (p.stance === 'drib') { if (p.cd.dribble <= 0 && p.stamina >= CFG.COST_DRIBBLE * 0.5) this.startDribble(p); return; }
         this.push(p, p.sprinting);
       }
       return;
@@ -362,6 +362,7 @@ class Game {
   startDribble(p) {
     this.startAction(p, 'dribble', this.lungeDir(p), CFG.DRIBBLE_DUR);
     p.cd.dribble = CFG.DRIBBLE_CD;
+    p.stamina = Math.max(0, p.stamina - CFG.COST_DRIBBLE);
   }
 
   runAction(p, dt) {
