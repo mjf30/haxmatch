@@ -158,6 +158,9 @@ def main():
     ap.add_argument('--attack', type=float, default=0.0)        # fração de partidas no cenário de finalização (episódios de 8 s)
     ap.add_argument('--build', type=float, default=0.0)         # fração no cenário de construção (episódios de 15 s)
     ap.add_argument('--curriculum', type=int, default=0)        # iterações em que as frações decaem linearmente a zero (0 = fixas)
+    ap.add_argument('--guide', type=float, default=0.0)         # híbrido guiado: peso da entropia cruzada com a macro do script (decai até --guide_floor em --guide_decay iterações)
+    ap.add_argument('--guide_decay', type=int, default=0)
+    ap.add_argument('--guide_floor', type=float, default=0.0)
     ap.add_argument('--league_init', type=str, default=None)   # checkpoints congelados que ficam na liga o treino inteiro (benchmark), separados por vírgula
     ap.add_argument('--approach', type=float, default=0.02)   # shaping denso: aproximar-se da bola solta (currículo inicial)
     ap.add_argument('--sanity', action='store_true')
@@ -231,6 +234,7 @@ def main():
         cur['scale'] = max(0.0, 1.0 - it / args.curriculum) if args.curriculum > 0 else 1.0
         obs_buf = torch.zeros(R, B, P, FT.SIZE, device=dev)
         act_buf = torch.zeros(R, B, P, len(pol.heads), dtype=torch.long, device=dev)
+        guide_buf = torch.zeros(R, B, P, dtype=torch.long, device=dev)   # macro que o script v2 escolheria (híbrido guiado)
         logp_buf = torch.zeros(R, B, P, device=dev); val_buf = torch.zeros(R, B, P, device=dev)
         rew_buf = torch.zeros(R, B, P, device=dev); done_buf = torch.zeros(R, B, device=dev)
         for r in range(R):
@@ -258,8 +262,10 @@ def main():
                     else:   # macro: decisão mantida durante o skip; execução do script a cada tick
                         C = AT.Ctx(sim)
                         mac = a[..., 0]
-                        if scriptEnv.any():
-                            mac = torch.where(scriptEnv.view(B, 1) & team1, ai.choose_macro(C), mac)
+                        if scriptEnv.any() or (args.guide > 0 and _k == 0):
+                            sm = ai.choose_macro(C)
+                            if _k == 0: guide_buf[r] = sm
+                            mac = torch.where(scriptEnv.view(B, 1) & team1, sm, mac)
                         inp = ai.decide(C, macroFn=lambda C_, m_=mac: m_)
                 # progresso da bola antes do passo (referencial de cada time)
                 bx0 = sim.bpos[:, 0].clone()
@@ -437,10 +443,11 @@ def main():
         trainMask = ~((leagueEnv | scriptEnv).view(1, B, 1) & team1.view(1, B, P)).expand(R, B, P)
         idxs = trainMask.reshape(-1).nonzero().squeeze(1)
         O = obs_buf.reshape(-1, FT.SIZE)[idxs]; A = act_buf.reshape(-1, len(pol.heads))[idxs]
-        LP = logp_buf.reshape(-1)[idxs]; AD = adv.reshape(-1)[idxs]; RT = ret.reshape(-1)[idxs]
+        LP = logp_buf.reshape(-1)[idxs]; AD = adv.reshape(-1)[idxs]; RT = ret.reshape(-1)[idxs]; GD = guide_buf.reshape(-1)[idxs]
+        beta = (max(args.guide_floor, args.guide * (1 - it / args.guide_decay)) if args.guide_decay > 0 else args.guide) if args.guide > 0 else 0.0
         AD = (AD - AD.mean()) / (AD.std() + 1e-8)
         N = O.shape[0]
-        stats_pi, stats_v, stats_ent, nb, stats_gn = 0.0, 0.0, 0.0, 0, 0.0
+        stats_pi, stats_v, stats_ent, nb, stats_gn, stats_gl = 0.0, 0.0, 0.0, 0, 0.0, 0.0
         for ep in range(args.epochs):
             perm = torch.randperm(N, device=dev)
             for s in range(0, N, args.minibatch):
@@ -450,6 +457,9 @@ def main():
                 pl = -torch.min(ratio * AD[mb], ratio.clamp(1 - args.clip, 1 + args.clip) * AD[mb]).mean()
                 vl = F.mse_loss(v, RT[mb])
                 loss = pl + 0.5 * vl - args.ent * ent.mean()
+                if beta > 0:
+                    gl = -pol.dists(O[mb])[0].log_prob(GD[mb]).mean()   # guia: segue a decisão do script v2
+                    loss = loss + beta * gl; stats_gl = stats_gl + float(gl.detach()) if 'stats_gl' in dir() else float(gl.detach())
                 opt.zero_grad(); loss.backward(); gn = nn.utils.clip_grad_norm_(pol.parameters(), 0.5); opt.step()
                 stats_gn = stats_gn + float(gn) if 'stats_gn' in dir() else float(gn)
                 stats_pi += float(pl.detach()); stats_v += float(vl.detach()); stats_ent += float(ent.mean().detach()); nb += 1
@@ -459,7 +469,7 @@ def main():
             gsteps = max(1, stat['steps']) * B
             print(f"it {it} · {(time.time() - t0) / 60:.1f} min · partidas {int(stat['matches'])} · gols/partida {stat['goals'] / m:.2f} · "
                   f"chutes/partida {stat['shots'] / m:.1f} · domínios/partida {stat['control'] / m:.1f} · passes/partida {stat['passes'] / m:.1f} (completos {stat['passOk'] / m:.1f}) · "
-                  f"pi {stats_pi / nb:.3f} v {stats_v / nb:.3f} ent {stats_ent / nb:.2f} gn {stats_gn / nb:.3f} p(a0=1) {float(pol.dists(obs[:64].reshape(-1, FT.SIZE))[0].probs[:, 1].mean()):.3f} · liga {len(league)}", flush=True)
+                  f"pi {stats_pi / nb:.3f} v {stats_v / nb:.3f} ent {stats_ent / nb:.2f} gn {stats_gn / nb:.3f} p(a0=1) {float(pol.dists(obs[:64].reshape(-1, FT.SIZE))[0].probs[:, 1].mean()):.3f} · liga {len(league)}" + (f' · guia {stats_gl / nb:.2f} (beta {beta:.2f})' if beta > 0 else ''), flush=True)
             stat = dict(goals=0.0, matches=0.0, shots=0.0, control=0.0, passes=0.0, passOk=0.0, steps=0)
         if it % args.league_every == 0:
             snap = Policy(pol.kind, pol.hid, pol.depth).to(dev); snap.load_state_dict(pol.state_dict()); snap.eval()
