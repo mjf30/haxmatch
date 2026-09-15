@@ -205,7 +205,7 @@ class Game {
 
     // sprint e extra effort (Shift duas vezes)
     if (inp.sprint && !prev.sprint) {
-      if (this.now - p.lastSprintTap < CFG.DOUBLE_TAP && p.effortBar >= 1 && !held && !p.exhausted) {
+      if (this.now - p.lastSprintTap < CFG.DOUBLE_TAP && p.effortBar >= 1 && !held) {   // vale mesmo exausto
         p.effortT = CFG.EFFORT_DUR; p.effortBar = 0;
         this.events.push({ type: 'effort', p });
       }
@@ -353,11 +353,12 @@ class Game {
       if (p.stance === 'drib') base *= CFG.MUL_DRIBBLE;
     }
     else if (p.stance === 'def') base = CFG.SPEED * CFG.MUL_DEF;
-    else if (p.sprinting && p.moving) base = CFG.SPRINT * (p.effortT > 0 ? CFG.EXTRA_EFFORT : 1);
+    else if (p.effortT > 0 && p.moving) base = CFG.SPRINT * CFG.EXTRA_EFFORT;   // arrancada: ignora stamina/exaustão
+    else if (p.sprinting && p.moving) base = CFG.SPRINT;
     else base = CFG.SPEED;
     if (p.charge) base *= CFG.MUL_CHARGE;
     if (p.recover > 0) base *= CFG.MUL_RECOVER;
-    if (p.exhausted) base *= CFG.MUL_EXHAUSTED;
+    if (p.exhausted && p.effortT <= 0) base *= CFG.MUL_EXHAUSTED;
     let desired = { x: inp.mx * base, y: inp.my * base };
     if (p.queued) {
       // com ação de primeira agendada o jogador vai em direção à bola, na
