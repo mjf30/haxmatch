@@ -12,6 +12,7 @@ import math
 import torch
 
 from sim_torch import CFG, DT, ST_DEF, ST_DRIB, Q_SHOT, ACT_NONE
+from features_torch import GX as FT_GX, GY as FT_GY
 
 MACROS = ['shoot', 'shootq', 'pass', 'passback', 'longpass', 'through', 'switch', 'dribble', 'carryspace', 'hold',
           'chase', 'defend', 'cover', 'cutlane', 'openfwd', 'openwide', 'overlap', 'runbox', 'runspace', 'openback', 'openbest', 'guardgoal', 'home',
@@ -372,37 +373,90 @@ class ScriptAI:
 
     # ---------- decisão ----------
     def choose_carrier(self, C):
+        """portador (js chooseCarrierMacro v2): nota contínua por opção, vence a maior"""
         B, P = C.B, C.P
-        rng = self.rng
+        sim = C.sim
         prevKick = isin(self.macro, KICK_SET)
         dGoal = C.dGoalP
         dOpp = C.dOppNearest
         notFirst = (~C.hasBall) & ~((dGoal < 520) | (dOpp < 130))
+        pressure = (1 - dOpp / 220).clamp(0, 1)
+        NEG = torch.full((B, P), -1e9, device=C.d)
+        scores, macros = [], []
+        def opt(mask, macro, score):
+            scores.append(torch.where(mask, score, NEG)); macros.append(macro if torch.is_tensor(macro) else torch.full((B, P), macro, dtype=torch.long, device=C.d))
+        # ---- chute ----
         target = C.shot_target()
         lane = C.lane_clear(C.bpos.unsqueeze(2), target.unsqueeze(2), C.oppNK.unsqueeze(2), 30).squeeze(2)
-        angleOk = (C.pos[..., 1].abs() < CFG['FIELD_H'] * 0.38) | (dGoal < 260)
-        shootCond = ((dGoal < 820) & lane & angleOk) | (dGoal < 260) | ((dGoal < 450) & angleOk & (rng() < 0.03))
-        shootMacro = torch.where((dGoal < 280) | (dOpp < 90), M['shootq'], M['shoot'])
-        thrHas, _, _ = C.through_target()
-        lpHas, _ = C.long_pass_target()
-        swHas, _ = C.switch_target()
-        bpHas, _ = C.best_pass(100)
-        spHas, _ = C.safe_pass_target()
-        _, free = C.space_dir()
-        res = torch.full((B, P), M['dribble'], dtype=torch.long, device=C.d)
-        res = torch.where((free > 340) & (dOpp > 120), M['carryspace'], res)
-        res = torch.where((dOpp < 60) | (rng() < 0.01), M['hold'], res)
-        res = torch.where(~C.hasBall, M['chase'], res)
-        res = torch.where(((dOpp < 130) | (rng() < 0.05)) & spHas, M['passback'], res)
-        res = torch.where(((dOpp < 120) | (rng() < 0.004)) & bpHas, M['pass'], res)
-        res = torch.where(((dOpp < 140) | (rng() < 0.10)) & swHas, M['switch'], res)
-        res = torch.where(((dOpp < 160) | (rng() < 0.12)) & lpHas, M['longpass'], res)
-        res = torch.where(((dOpp < 160) | (rng() < 0.15)) & thrHas, M['through'], res)
-        res = torch.where(shootCond, shootMacro, res)
-        res = torch.where(notFirst, M['chase'], res)
+        angle = 1 - (C.pos[..., 1].abs() / (CFG['FIELD_H'] * 0.42)).clamp(max=1)
+        distF = torch.where(dGoal < 300, 1.0, torch.where(dGoal < 550, 0.75, torch.where(dGoal < 800, 0.4, 0.0)))
+        keeperQ = C.keeper.view(B, 1, P).expand(B, P, P)
+        gkX, _, hasGk = masked_max(C.posQ[..., 0].expand(B, P, P), C.opp & keeperQ)
+        gkOut = torch.where(hasGk, (((gkX - C.oppGoal[..., 0]).abs() - 120) / 200).clamp(0, 1), torch.ones_like(gkX)) * torch.where(dGoal < 900, 0.3, 0.0)
+        shot = distF * (0.5 + 0.5 * angle) * torch.where(lane, 1.0, 0.35) + gkOut
+        opt(torch.ones_like(lane), torch.where((dGoal < 280) | (dOpp < 90), M['shootq'], M['shoot']), shot)
+        # ---- passes ----
+        cnt, _, _ = self._pc(sim)
+        nAct = sim.active_mask().sum(-1, keepdim=True).float()
+        cells = float(FT_GX * FT_GY)
+        shareQ = ((cnt.float() / (cells / nAct)).clamp(0, 2) / 2)                # [B,q] fatia média = 0.5
+        def pass_value(tgt, recv):
+            prog = (((tgt[..., 0] - C.pos[..., 0]) * C.dir) / 500).clamp(-0.5, 1)
+            dOppT = C.min_opp_dist_to(tgt.unsqueeze(2)).squeeze(2)
+            space = dOppT.clamp(max=260) / 260
+            # margem da linha: menor distância de um adversário (a mais de 30 px da bola) ao segmento bola->alvo
+            pq = C.posQ.unsqueeze(2)
+            sd = seg_dist(pq, C.bpos.unsqueeze(2).unsqueeze(3), tgt.unsqueeze(2).unsqueeze(3)).squeeze(2)   # [B,P,Q]
+            far = (pq - C.bpos.unsqueeze(2).unsqueeze(3)).norm(dim=-1).squeeze(2) > 30
+            mn, _, _ = masked_min(sd, C.opp & far)
+            margin = ((mn - 30) / 80).clamp(0, 1)
+            share = gather1(shareQ, recv)
+            v = 0.35 * prog + 0.3 * space + 0.2 * margin + 0.15 * share
+            v = torch.where((tgt[..., 0] * C.dir < -W2 * 0.5) & (dOppT < 200), v - 0.3, v)
+            return v
+        thrHas, thrLead, thrD = C.through_target()
+        _, _, _ = thrHas, thrLead, thrD
+        # índice do companheiro da enfiada (para a fatia): recomputa o argmax como em through_target
+        opt(thrHas, M['through'], pass_value(thrLead, self._through_idx(C)) + 0.1 - torch.where(thrD > 700, 0.15, 0.0))
+        lpHas, lpIdx = C.long_pass_target()
+        opt(lpHas, M['longpass'], pass_value(gather2(sim.pos, lpIdx) + gather2(sim.vel, lpIdx) * 0.6, lpIdx) - 0.1)
+        swHas, swIdx = C.switch_target()
+        crowded = torch.where((C.opp & (C.dist < 260)).sum(-1) >= 2, 0.15, 0.0)
+        opt(swHas, M['switch'], pass_value(gather2(sim.pos, swIdx), swIdx) + crowded)
+        bpHas, bpIdx = C.best_pass(100)
+        opt(bpHas, M['pass'], pass_value(gather2(sim.pos, bpIdx) + gather2(sim.vel, bpIdx) * 0.3, bpIdx))
+        spHas, spIdx = C.safe_pass_target()
+        opt(spHas, M['passback'], pass_value(gather2(sim.pos, spIdx), spIdx) + 0.25 * pressure)
+        # ---- conduzir / proteger / dominar ----
+        sd_, free = C.space_dir()
+        carry = (free / 500).clamp(0, 1) * 0.45 * (1 - pressure) * torch.where(C.keeper, 0.3, 1.0) + torch.where(dGoal < 900, 0.1, 0.0)
+        opt(C.hasBall, torch.where((free > 450) & (dOpp > 200), M['carryspace'], M['dribble']), carry)
+        opt(C.hasBall, M['hold'], 0.15 + 0.35 * pressure * (dOpp < 90).float())
+        opt(~C.hasBall, M['chase'], torch.full((B, P), 0.3, device=C.d))
+        S = torch.stack(scores, -1); Mm = torch.stack(macros, -1)
+        best = S.argmax(dim=-1)
+        res = torch.gather(Mm, 2, best.unsqueeze(-1)).squeeze(-1)
+        res = torch.where(notFirst, torch.full_like(res, M['chase']), res)
         res = torch.where(self.mode == MODE_PASS, torch.where(prevKick, self.macro, torch.full_like(res, M['pass'])), res)
         res = torch.where(self.mode == MODE_SHOOT, torch.where(prevKick, self.macro, torch.full_like(res, M['shoot'])), res)
         return res
+
+    def _pc(self, sim):
+        import features_torch as FT
+        return FT.pitch_control(sim)
+
+    def _through_idx(self, C):
+        """índice do companheiro escolhido pela enfiada (mesmo critério de through_target)"""
+        B, P = C.B, C.P
+        fwd = C.velQ[..., 0].expand(B, P, P) * C.dir3
+        leadM = clamp_field(C.sim.pos + C.sim.vel * 0.9, 40).view(B, 1, P, 2).expand(B, P, P, 2)
+        d = (leadM - C.pos.unsqueeze(2)).norm(dim=-1)
+        prog = (leadM[..., 0] - C.pos[..., 0].unsqueeze(-1)) * C.dir3
+        lane = C.lane_clear(C.bpos.unsqueeze(2).expand(B, P, P, 2), leadM, C.opp.unsqueeze(2), 26)
+        on = C.min_opp_dist_to(leadM)
+        ok = C.matesNK & (fwd >= 60) & (d >= 200) & (d <= 900) & (prog >= 100) & lane & (on >= 90)
+        _, idx, _ = masked_max(fwd + on * 0.5 + prog * 0.3, ok)
+        return idx
 
     def choose_offball(self, C):
         B, P = C.B, C.P
@@ -414,34 +468,57 @@ class ScriptAI:
         dQown = (C.posQ - C.ownGoal.unsqueeze(2)).norm(dim=-1)                  # [B,p,q]
         closer = (C.matesNK & (dQown < C.dOwnGoalP.unsqueeze(-1))).any(-1)
         guard = (~keeperMate | ~keeperInBox) & (C.bpos[..., 0] * C.dir < W2 * 0.2) & ~closer & ~C.isOwner
-        # companheiro com a bola
+        # companheiro com a bola: papéis pela estrutura (js v2). field = linha do meu time sem o portador (inclui eu)
+        fieldQ = C.sameInc & ~keeperQ & ~(C.pidx.unsqueeze(1).expand(B, P, P) == C.owner.unsqueeze(-1))
         dQc = (C.posQ - C.ownerPos.unsqueeze(2)).norm(dim=-1)                   # [B,p,q] distância de q ao portador
-        dPc = (C.pos - C.ownerPos).norm(dim=-1)
-        fieldM = C.matesNK & ~(C.pidx.unsqueeze(1).expand(B, P, P) == C.owner.unsqueeze(-1))
-        order = (fieldM & (dQc < dPc.unsqueeze(-1))).sum(-1)
-        ahead = (C.pos[..., 0] - C.ownerPos[..., 0]) * C.dir > 0
+        xQ = C.posQ[..., 0].expand(B, P, P) * C.dir3; yQ = C.posQ[..., 1].expand(B, P, P)
+        xC = C.ownerPos[..., 0].unsqueeze(-1) * C.dir3; yC = C.ownerPos[..., 1].unsqueeze(-1)
         attacking = C.ownerPos[..., 0] * C.dir > W2 * 0.3
-        r1, r2, r3, r4 = rng(), rng(), rng(), rng()
-        o0 = torch.where(attacking, torch.where(ahead, M['runbox'], M['overlap']),
-                         torch.where(ahead, torch.where(r1 < 0.3, M['runspace'], M['openfwd']), torch.full_like(order, M['openback'])))
-        o1 = torch.where(attacking, torch.where(ahead, M['runbox'], M['openwide']),
-                         torch.where(r2 < 0.4, torch.full_like(order, M['openbest']), torch.where(ahead & (r3 < 0.3), M['runspace'], M['openwide'])))
-        o2 = torch.where(r4 < 0.4, torch.full_like(order, M['openbest']), torch.where(ahead, M['openfwd'], M['home']))
-        sameOwner = torch.where(order == 0, o0, torch.where(order == 1, o1, o2))
-        # adversário com a bola
+        me = C.pidx.unsqueeze(1).expand(B, P, P) == C.pidx.unsqueeze(-1)       # [B,p,q] q == p
+        # apoio: mais perto do portador entre os que não estão à frente
+        behind = fieldQ & ((xQ - xC) <= 40)
+        _, supIdx, supHas = masked_min(dQc, behind)
+        assigned = supHas.unsqueeze(-1) & (C.pidx.unsqueeze(1).expand(B, P, P) == supIdx.unsqueeze(-1))
+        supRole = torch.where(attacking, M['overlap'], M['openback'])
+        # largura por lado
+        wideIdx, wideHas = [], []
+        for side in (1.0, -1.0):
+            openS = (fieldQ & ((yQ - yC) * side > 250) & ~(assigned & (supRole.unsqueeze(-1) == M['openback']))).any(-1)
+            cand = fieldQ & ~assigned & ((yQ - yC) * side >= 0)
+            _, wIdx, wHas = masked_max(yQ * side, cand)
+            wHas = wHas & ~openS
+            wideIdx.append(wIdx); wideHas.append(wHas)
+            assigned = assigned | (wHas.unsqueeze(-1) & (C.pidx.unsqueeze(1).expand(B, P, P) == wIdx.unsqueeze(-1)))
+        # profundidade: o mais avançado dos livres
+        _, advIdx, advHas = masked_max(xQ, fieldQ & ~assigned)
+        lastX, _, hasDef = masked_max(xQ, C.oppNK)
+        lastX = torch.where(hasDef, lastX, torch.full_like(lastX, W2))
+        advRole = torch.where(attacking, M['runbox'], torch.where(lastX - C.ownerPos[..., 0] * C.dir > 150, M['runspace'], M['openfwd']))
+        sameOwner = torch.full((B, P), M['openbest'], dtype=torch.long, device=C.d)
+        sameOwner = torch.where(advHas & (advIdx == C.pidx), advRole, sameOwner)
+        for wIdx, wHas in zip(wideIdx, wideHas):
+            sameOwner = torch.where(wHas & (wIdx == C.pidx), torch.full_like(sameOwner, M['openwide']), sameOwner)
+        sameOwner = torch.where(supHas & (supIdx == C.pidx), supRole, sameOwner)
+        # adversário com a bola: pressiona / corta linha perigosa / último homem cobre / compacta
+        dPc = (C.pos - C.ownerPos).norm(dim=-1)
         orderD = (C.matesNK & (dQc < dPc.unsqueeze(-1))).sum(-1)
-        foHas, _ = C.freest_opp()
-        r5 = rng()
-        oppOwner = torch.where(orderD == 0, torch.full_like(order, M['defend']),
-                               torch.where(orderD == 1, torch.where(foHas & (r5 < 0.5), M['cutlane'], M['cover']), torch.full_like(order, M['home'])))
+        dQown = (C.posQ - C.ownGoal.unsqueeze(2)).norm(dim=-1)
+        lastMan = ~(C.matesNK & (dQown < C.dOwnGoalP.unsqueeze(-1))).any(-1)
+        foHas, foIdx = C.freest_opp()
+        foPos = gather2(C.sim.pos, foIdx)
+        dFo = (foPos - C.ownGoal).norm(dim=-1); dBallGoal = (C.bpos - C.ownGoal).norm(dim=-1)
+        dangerous = foHas & ((dFo < dBallGoal + 100) | (dFo < 600))
+        oppOwner = torch.where(orderD == 0, torch.full_like(orderD, M['defend']),
+                               torch.where(orderD == 1, torch.where(dangerous & ~lastMan, M['cutlane'], M['cover']),
+                                           torch.where(lastMan, M['cover'], M['home'])))
         # bola solta
         dBall = C.dBallQ
         pred = C.predict_ball((dBall / 450).clamp(0, 1.2))
         dQpred = (C.posQ - pred.unsqueeze(2)).norm(dim=-1)
         dPpred = (C.pos - pred).norm(dim=-1)
         rank = (C.matesNK & (dQpred < dPpred.unsqueeze(-1))).sum(-1)
-        loose = torch.where(rank == 0, torch.full_like(order, M['chase']),
-                            torch.where(rank == 1, torch.where((pred[..., 0] - C.pos[..., 0]) * C.dir > 0, M['cover'], M['openfwd']), torch.full_like(order, M['home'])))
+        loose = torch.where(rank == 0, torch.full_like(orderD, M["chase"]),
+                            torch.where(rank == 1, torch.where((pred[..., 0] - C.pos[..., 0]) * C.dir > 0, M['cover'], M['openfwd']), torch.full_like(orderD, M["home"])))
         res = torch.where(C.ownerSame, sameOwner, torch.where(C.ownerOpp, oppOwner, loose))
         res = torch.where(guard, torch.full_like(res, M['guardgoal']), res)
         return res
