@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HaxMatch</title>
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #1b2a1c; font-family: system-ui, sans-serif; }
+    canvas { display: block; cursor: crosshair; }
+    #lobby { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(10, 20, 12, 0.92); color: #eee; }
+    #lobby[hidden] { display: none; }
+    .card { background: #22352a; border: 1px solid #3f6a4a; border-radius: 12px; padding: 24px 28px; width: min(420px, 92vw); box-shadow: 0 10px 40px rgba(0,0,0,0.5); }
+    .card h1 { margin: 0 0 4px; font-size: 28px; letter-spacing: 1px; }
+    .card p.sub { margin: 0 0 18px; color: #9fc7a8; font-size: 13px; }
+    .row { display: flex; gap: 8px; align-items: center; margin: 10px 0; flex-wrap: wrap; }
+    label { font-size: 13px; color: #cfe6d3; }
+    input, select { background: #172519; color: #fff; border: 1px solid #3f6a4a; border-radius: 6px; padding: 8px 10px; font-size: 15px; }
+    input#code { text-transform: uppercase; letter-spacing: 3px; width: 120px; font-weight: bold; }
+    button { background: #3c8ee9; color: #fff; border: 0; border-radius: 8px; padding: 10px 14px; font-size: 15px; cursor: pointer; }
+    button:hover { filter: brightness(1.1); }
+    button.alt { background: #e94b3c; }
+    button.ghost { background: #2f4a37; }
+    hr { border: 0; border-top: 1px solid #3f6a4a; margin: 16px 0; }
+    #status { min-height: 18px; font-size: 13px; color: #9fc7a8; }
+    #status.err { color: #ff9b8f; }
+    #roomInfo { background: #172519; border-radius: 8px; padding: 10px 12px; font-size: 13px; }
+    #roomCode { font-size: 26px; font-weight: bold; letter-spacing: 4px; color: #ffe66d; }
+    #roomLink { word-break: break-all; color: #9fc7a8; }
+    .hint { font-size: 12px; color: #86a98d; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <canvas id="game" tabindex="0"></canvas>
+
+  <div id="lobby">
+    <div class="card">
+      <h1>HaxMatch</h1>
+      <p class="sub">Futebol 2D com mecânicas do Rematch</p>
+
+      <div class="row">
+        <label>Seu nome <input id="name" maxlength="12" placeholder="Jogador"></label>
+        <label>Times <select id="teamSize"><option value="3">3v3</option><option value="4">4v4</option><option value="5">5v5</option></select></label>
+      </div>
+
+      <div class="row">
+        <button id="btnSolo" class="ghost">Jogar sozinho (bots)</button>
+        <button id="btnHost" class="alt">Criar sala</button>
+      </div>
+      <div class="row">
+        <input id="code" maxlength="5" placeholder="CÓDIGO">
+        <button id="btnJoin">Entrar na sala</button>
+      </div>
+
+      <div id="roomInfo" hidden>
+        Sala: <span id="roomCode"></span><br>
+        Link: <span id="roomLink"></span>
+      </div>
+      <div id="status"></div>
+
+      <hr>
+      <div class="hint">
+        Quem cria a sala roda a partida; amigos entram com o código e ocupam vagas dos bots (alternando os times).
+        Conexão direta entre navegadores (WebRTC). Esc volta ao lobby. Enter = tela cheia (bloqueia Ctrl+W).
+      </div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/vec.js"></script>
+  <script src="js/input.js"></script>
+  <script src="js/game.js"></script>
+  <script src="js/ai.js"></script>
+  <script src="js/render.js"></script>
+  <script src="js/netstate.js"></script>
+  <script src="js/net.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
