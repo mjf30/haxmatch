@@ -59,7 +59,11 @@ const CFG = {
   SLIDE_RECOVER: 0.6, SLIDE_MISS_RECOVER: 0.9, SLIDE_KNOCK: 380, FALL_DUR: 0.85,
   // ---- dash (postura defensiva) e drible (postura de drible) ----
   DASH_DUR: 0.16, DASH_MUL: 2.6, DASH_CD: 0.6,
-  DRIBBLE_DUR: 0.2, DRIBBLE_MUL: 2.4, DRIBBLE_CD: 1.5,
+  DRIBBLE_DUR: 0.14, DRIBBLE_MUL: 2.3,                      // drible na postura: passo curto
+  DRIBBLE_CHAIN_WINDOW: 0.3,        // após o 1º drible, tempo para encadear o 2º ("roleta")
+  DRIBBLE_LAG: 0.55,                // lag após o 2º drible (cancelável com chute, passe ou push)
+  DRIBBLE_LAG_MUL: 0.35,            // velocidade durante o lag
+  DRIBBLE_CD: 1.5, DRIBBLE_CD_SINGLE: 0.9,   // cooldown após a sequência de 2 / após um drible só
   // ---- goleiro ----
   GK_DIVE_DUR: 0.42, GK_DIVE_SPEED: 350, GK_DIVE_REACH: 10, GK_DIVE_RECOVER: 0.6, GK_DIVE_CD: 1.0,
   GK_PARRY_SPEED: 900, GK_HOLD_MAX: 5, GK_THROW: 560, GK_THROW_ASSIST_DEG: 20,

@@ -23,6 +23,7 @@ function makePlayer(id, team, idx, home, name) {
     input: emptyInput(), prevInput: emptyInput(),
     stance: 'none', sprinting: false, effortT: 0, effortBar: 1, lastSprintTap: -10,
     stamina: CFG.STAMINA_MAX, exhausted: false, regenDelay: 0,
+    dribbleN: 0, dribbleChainT: 0, dribbleLag: 0,   // sequência de dribles (1º, 2º), janela de encadear, lag pós-2º
     action: null,            // {type, t, dur, dir, hit, ...}
     recover: 0,              // tempo com controle reduzido (erro de tackle, pós-chute)
     fallen: 0,               // caído (carrinho)
@@ -77,6 +78,7 @@ class Game {
       p.fallen = 0; p.getup = 0; p.recover = 0;
       p.isKeeper = false; p.held = false; p.holdT = 0;
       p.stance = 'none'; p.sprinting = false; p.effortT = 0;
+      p.dribbleN = 0; p.dribbleChainT = 0; p.dribbleLag = 0;
       for (const k in p.cd) p.cd[k] = 0;
       if (first) { p.stamina = CFG.STAMINA_MAX; p.effortBar = 1; p.exhausted = false; p.regenDelay = 0; }
       p.ai = {};
@@ -215,6 +217,13 @@ class Game {
     p.effortT = Math.max(0, p.effortT - dt);
     // barra da arrancada recarrega mais rápido com a stamina cheia
     p.effortBar = Math.min(1, p.effortBar + dt / (p.stamina >= CFG.STAMINA_MAX - 0.01 ? CFG.EFFORT_RECHARGE_FULL : CFG.EFFORT_RECHARGE));
+    p.dribbleLag = Math.max(0, p.dribbleLag - dt);
+    if (p.dribbleChainT > 0) {
+      p.dribbleChainT = Math.max(0, p.dribbleChainT - dt);
+      // não encadeou: cooldown menor
+      if (p.dribbleChainT === 0 && p.dribbleN === 1 && !p.action) { p.dribbleN = 0; p.cd.dribble = CFG.DRIBBLE_CD_SINGLE; }
+    }
+    if (!hasBall && !held) { p.dribbleLag = 0; if (p.dribbleN === 1 && !p.action) { p.dribbleN = 0; p.dribbleChainT = 0; } }
     if (inp.call && !prev.call) { p.callT = 1.5; this.events.push({ type: 'call', p }); }
 
     // mira e direção de movimento
@@ -341,17 +350,22 @@ class Game {
 
     if (canKick) {
       if (pressed('shoot')) {
-        p.armed.shoot = false;
+        p.armed.shoot = false; p.dribbleLag = 0;
         p.charge = { kind: 'shot', t: 0, dir0: this.kickDir(p), lastAngle: V.angle(p.facing), spin: 0 };
         return;
       }
-      if (pressed('pass')) { p.armed.pass = false; p.charge = { kind: 'pass', t: 0 }; return; }
+      if (pressed('pass')) { p.armed.pass = false; p.dribbleLag = 0; p.charge = { kind: 'pass', t: 0 }; return; }
       // extra effort com a bola nos pés: empurra sozinho enquanto a arrancada dura
       if (hasBall && p.effortT > 0 && p.moving) { this.push(p, true); return; }
       if (held && pressed('throwBall')) { this.throwBall(p); return; }
       if (pressed('special')) {
         if (held) { p.held = false; p.holdT = 0; return; }                     // solta e conduz
-        if (p.stance === 'drib') { if (p.cd.dribble <= 0 && p.stamina >= CFG.COST_DRIBBLE * 0.5) this.startDribble(p); return; }
+        if (p.dribbleLag > 0) { p.dribbleLag = 0; this.push(p, p.sprinting); return; }   // push cancela o lag do 2º drible
+        if (p.stance === 'drib') {
+          const chain = p.dribbleN === 1 && p.dribbleChainT > 0;
+          if ((chain || p.cd.dribble <= 0) && p.stamina >= CFG.COST_DRIBBLE * 0.5) this.startDribble(p);
+          return;
+        }
         this.push(p, p.sprinting);
       }
       return;
@@ -386,6 +400,7 @@ class Game {
     if (p.charge) base *= CFG.MUL_CHARGE;
     if (p.recover > 0) base *= CFG.MUL_RECOVER;
     if (p.exhausted && p.effortT <= 0) base *= CFG.MUL_EXHAUSTED;
+    if (p.dribbleLag > 0) base *= CFG.DRIBBLE_LAG_MUL;
     let desired = { x: inp.mx * base, y: inp.my * base };
     if (p.queued) {
       // ação travada: "snap" até o ponto onde a bola vai estar, limitado à
@@ -425,8 +440,12 @@ class Game {
     p.stamina = Math.max(0, p.stamina - CFG.COST_DASH);
   }
   startDribble(p) {
+    // 1º drible: passo curto; 2º logo em seguida (janela): roleta, com lag no fim
+    const second = p.dribbleN === 1 && p.dribbleChainT > 0;
     this.startAction(p, 'dribble', this.lungeDir(p), CFG.DRIBBLE_DUR);
-    p.cd.dribble = CFG.DRIBBLE_CD;
+    p.action.second = second;
+    p.dribbleN = second ? 2 : 1;
+    p.dribbleChainT = 0;
     p.stamina = Math.max(0, p.stamina - CFG.COST_DRIBBLE);
   }
 
@@ -449,6 +468,10 @@ class Game {
     p.action = null;
     switch (a.type) {
       case 'tackle': if (!a.hit) p.recover = CFG.TACKLE_MISS_RECOVER; break;
+      case 'dribble':
+        if (a.second) { p.dribbleN = 0; p.dribbleLag = CFG.DRIBBLE_LAG; p.cd.dribble = CFG.DRIBBLE_CD; }
+        else p.dribbleChainT = CFG.DRIBBLE_CHAIN_WINDOW;
+        break;
       case 'slide':
         if (a.hit || a.body) p.getup = CFG.SLIDE_RECOVER;
         else { p.getup = CFG.SLIDE_MISS_RECOVER; p.stamina = Math.max(0, p.stamina - CFG.COST_SLIDE_MISS); }

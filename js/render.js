@@ -143,7 +143,8 @@ class Renderer {
     } else {
       // postura
       if (p.stance === 'def') { ctx.strokeStyle = 'rgba(90,200,255,0.9)'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(0, 0, p.r + CFG.GRAB_MARGIN_DEF, 0, Math.PI * 2); ctx.stroke(); }
-      if (p.stance === 'drib') { ctx.strokeStyle = 'rgba(255,190,60,0.95)'; ctx.lineWidth = 3; ctx.setLineDash([6, 5]); ctx.beginPath(); ctx.arc(0, 0, p.r + 6, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]); }
+      if (p.dribbleLag > 0) { ctx.strokeStyle = 'rgba(200,200,200,0.7)'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(0, 0, p.r + 6, 0, Math.PI * 2 * (p.dribbleLag / CFG.DRIBBLE_LAG)); ctx.stroke(); }
+      else if (p.stance === 'drib') { ctx.strokeStyle = 'rgba(255,190,60,0.95)'; ctx.lineWidth = 3; ctx.setLineDash([6, 5]); ctx.beginPath(); ctx.arc(0, 0, p.r + 6, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]); }
       // tackle / dash: rastro
       if (p.action) {
         ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = 5;
@@ -375,6 +376,7 @@ class Renderer {
       if (human.stance === 'drib') status += ' · postura de drible';
       if (human.held) status += ` · bola nas mãos ${(CFG.GK_HOLD_MAX - human.holdT).toFixed(1)}s`;
       if (human.exhausted) status += ' · EXAUSTO';
+      if (human.dribbleLag > 0) status += ' · lag do drible (chute/passe/Espaço cancela)';
       if (human.recover > 0) status += ' · recuperando';
       if (human.fallen > 0) status += ' · caído';
       if (human.getup > 0) status += ' · levantando';
@@ -414,7 +416,7 @@ class Renderer {
       const lines = [
         'WASD mover · mouse mira · Shift correr (2x = arrancada)',
         'LMB chute (segurar = força; mover o mouse = efeito) · RMB passe',
-        'Espaço: push ball (com bola) / drible (Ctrl+bola) / dash (Ctrl sem bola) / mergulho do goleiro',
+        'Espaço: push ball (com bola) / drible (Ctrl+bola; 2x seguidas = roleta, com lag) / dash (Ctrl sem bola) / mergulho GK',
         'E tackle · Shift+E carrinho · Ctrl (ou C) postura · F arremesso do goleiro · botão do meio pede a bola',
         'Losango na bola = alvo: LMB/RMB/Espaço travam a ação (verde) e ela sai no toque; vermelho = outro tem prioridade',
         'Tab placar/ping (T ou clique = trocar de time) · Q troca jogador (solo) · R reinicia · H ajuda',

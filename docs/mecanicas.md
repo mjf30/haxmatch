@@ -117,7 +117,12 @@ para chegar nele.
 
 **2D:** velocidade 0,7×; bola mantida mais perto e "escondida" do adversário mais
 próximo; tackle em pé tem chance reduzida de sucesso; Espaço + direção = passo
-curto rápido com a bola grudada (invulnerável durante o passo).
+curto rápido com a bola grudada (invulnerável durante o passo). Apertar Espaço de
+novo logo em seguida (janela de 0,3 s) dá o segundo drible em qualquer direção
+(a "roleta" do Rematch, feita com dois toques na postura); depois do segundo há um
+lag de animação (lento e vulnerável) que chute, passe ou push cancelam, como no
+Rematch ("if you input shoot, pass, or push right after two dribbles, you can skip
+the lag"). Cooldown maior após a sequência de dois.
 
 ### Postura defensiva (Ctrl sem bola)
 - Personagem "enquadra" a bola, domina bolas fortes, e Espaço vira um dash curto
