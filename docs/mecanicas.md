@@ -57,9 +57,13 @@ maior; goleiro dentro da área pega qualquer bola.
   executa a ação sem dominar.
 
 **2D:** bola solta a até `ACTION_RADIUS` do corpo brilha; LMB/RMB/Espaço criam uma
-ação agendada (chute continua carregando enquanto o botão está segurado); o
-movimento é redirecionado para a bola com velocidade ×1,3; no contato a ação
-dispara. Sair da zona ou a bola ser dominada por outro cancela.
+ação agendada (chute continua carregando enquanto o botão está segurado). O botão
+pode ser segurado antes de a bola entrar na zona: a ação arma no instante em que
+ela entra, sem apertar de novo. O movimento é redirecionado para a bola; no
+primeiro toque de primeira da sequência com passo acelerado (limitado ao sprint),
+do segundo em diante, sem ter dominado no meio, em velocidade normal, para não
+ser mais rápido que correr sem bola. No contato a ação dispara. Sair da zona ou
+a bola ser dominada por outro cancela.
 
 ### Push ball (empurrar e correr)
 - Espaço enquanto corre com a bola: o personagem toca a bola para frente, ela sai

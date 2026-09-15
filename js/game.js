@@ -30,6 +30,8 @@ function makePlayer(id, team, idx, home, name) {
     cd: { tackle: 0, slide: 0, dash: 0, dribble: 0, dive: 0, grab: 0, gloves: 0, through: 0 },
     charge: null,            // {kind:'shot'|'pass', t, dir0, lastAngle, spin}
     queued: null,            // ação de primeira agendada na zona de ação: {kind:'shot'|'pass'|'push', t, charging, dir0, lastAngle, spin}
+    armed: { shoot: false, pass: false, special: false },   // botão apertado e ainda não consumido (pré-carga)
+    touchChain: 0,           // toques de primeira seguidos sem dominar (a partir do 2º não há passo acelerado)
     held: false, holdT: 0,   // goleiro com a bola nas mãos
     pushFlash: 0, callT: 0, fakeT: 0,
     stats: { goals: 0, assists: 0, steals: 0, saves: 0 },
@@ -240,6 +242,12 @@ class Game {
     const ball = this.ball;
     const canKick = hasBall || held;
     const inZone = this.ballInZone(p);
+    // botão "armado": apertou e ainda não usou; soltar desarma. Permite pré-carregar
+    // antes da bola entrar na zona de ação.
+    for (const k of ['shoot', 'pass', 'special']) {
+      if (pressed(k)) p.armed[k] = true;
+      if (!inp[k]) p.armed[k] = false;
+    }
 
     // ---- ação de primeira agendada (zona de ação) ----
     // O jogador não age de imediato: acelera até a bola e executa no toque.
@@ -261,9 +269,9 @@ class Game {
       }
     }
     if (!canKick && inZone) {
-      if (pressed('shoot')) { p.queued = { kind: 'shot', t: 0, charging: true, dir0: this.kickDir(p), lastAngle: V.angle(p.facing), spin: 0 }; return; }
-      if (pressed('pass')) { p.queued = { kind: 'pass', t: 0, charging: true }; return; }
-      if (pressed('special')) { p.queued = { kind: 'push', t: 0, charging: false }; return; }
+      if (p.armed.shoot) { p.armed.shoot = false; p.queued = { kind: 'shot', t: 0, charging: true, dir0: this.kickDir(p), lastAngle: V.angle(p.facing), spin: 0 }; return; }
+      if (p.armed.pass) { p.armed.pass = false; p.queued = { kind: 'pass', t: 0, charging: true }; return; }
+      if (p.armed.special) { p.armed.special = false; p.queued = { kind: 'push', t: 0, charging: false }; return; }
     }
 
     // ---- carga de chute / passe com a bola dominada ----
@@ -286,14 +294,16 @@ class Game {
 
     if (canKick) {
       if (pressed('shoot')) {
+        p.armed.shoot = false;
         p.charge = { kind: 'shot', t: 0, dir0: this.kickDir(p), lastAngle: V.angle(p.facing), spin: 0 };
         return;
       }
-      if (pressed('pass')) { p.charge = { kind: 'pass', t: 0 }; return; }
+      if (pressed('pass')) { p.armed.pass = false; p.charge = { kind: 'pass', t: 0 }; return; }
       // extra effort com a bola nos pés: empurra sozinho enquanto a arrancada dura
       if (hasBall && p.effortT > 0 && p.moving) { this.push(p, true); return; }
       if (held && pressed('throwBall')) { this.throwBall(p); return; }
       if (pressed('special')) {
+        p.armed.special = false;
         if (held) { p.held = false; p.holdT = 0; return; }                     // solta e conduz
         if (p.stance === 'drib') { if (p.cd.dribble <= 0 && p.stamina >= CFG.COST_DRIBBLE * 0.5) this.startDribble(p); return; }
         this.push(p, p.sprinting);
@@ -330,9 +340,12 @@ class Game {
     if (p.recover > 0) base *= CFG.MUL_RECOVER;
     let desired = { x: inp.mx * base, y: inp.my * base };
     if (p.queued) {
-      // passo em direção à bola para executar a ação de primeira
+      // passo em direção à bola para executar a ação de primeira. Só o primeiro
+      // toque de primeira da sequência ganha o passo acelerado (equivale ao domínio,
+      // corrige o rumo); do segundo em diante corre atrás em velocidade normal.
       const toBall = V.norm(V.sub(this.ball.pos, p.pos));
-      desired = V.mul(toBall, Math.max(V.len(desired), CFG.SPEED) * CFG.ACTION_ZONE_SPEED);
+      const boost = p.touchChain === 0 ? Math.min(CFG.SPEED * CFG.ACTION_ZONE_SPEED, CFG.SPRINT) : base;
+      desired = V.mul(toBall, Math.max(V.len(desired), boost));
     }
     const diff = V.sub(desired, p.vel);
     const dl = V.len(diff);
@@ -475,6 +488,7 @@ class Game {
     const b = this.ball;
     b.owner = p; b.spin = 0; b.lastTouch = p; b.lastTeam = p.team;
     p.held = !!hands; p.holdT = 0;
+    p.touchChain = 0;
   }
 
   kick(p, dir, speed, spin) {
@@ -548,6 +562,7 @@ class Game {
   fireQueued(p) {
     const q = p.queued;
     p.queued = null;
+    p.touchChain++;
     if (q.kind === 'shot') {
       this.shoot(p, q);
     } else if (q.kind === 'pass') {
