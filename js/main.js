@@ -25,9 +25,14 @@
   const nnPolicy = (typeof NN_WEIGHTS !== 'undefined') ? (NN_WEIGHTS.kind === 'macro' ? MacroBot.fromExport(NN_WEIGHTS) : NNBot.fromExport(NN_WEIGHTS)) : null;
   const nnKind = (typeof NN_WEIGHTS !== 'undefined') ? NN_WEIGHTS.kind : null;
   const rawPolicy = (typeof NN_RAW_WEIGHTS !== 'undefined') ? RawBot.fromExport(NN_RAW_WEIGHTS) : null;
+  const macroPpoPolicy = (typeof NN_MACRO_PPO !== 'undefined') ? MacroBot.fromExport(NN_MACRO_PPO) : null;
+  const controlPolicy = (typeof NN_CONTROL !== 'undefined') ? MacroBot.fromExport(NN_CONTROL) : null;
+  for (const [k, pol] of [['nn_ppo', macroPpoPolicy], ['nn_zero', controlPolicy]]) if (!pol) { const o = $('botKind').querySelector(`option[value="${k}"]`); if (o) o.disabled = true; }
   if (!rawPolicy) { const o = $('botKind').querySelector('option[value="raw"]'); if (o) { o.disabled = true; o.textContent = 'rede PPO (sem pesos)'; } }
   if (!nnPolicy) { const o = $('botKind').querySelector('option[value="nn"]'); if (o) { o.disabled = true; o.textContent = 'rede neural (sem pesos)'; } }
   const botThink = (p, dt) => (botKind === 'raw' && rawPolicy ? RawBot.think(p, game, dt, rawPolicy)
+    : botKind === 'nn_ppo' && macroPpoPolicy ? MacroBot.think(p, game, dt, macroPpoPolicy)
+    : botKind === 'nn_zero' && controlPolicy ? MacroBot.think(p, game, dt, controlPolicy)
     : botKind === 'nn' && nnPolicy ? (nnKind === 'macro' ? MacroBot.think(p, game, dt, nnPolicy) : NNBot.think(p, game, dt, nnPolicy)) : AI.think(p, game, dt));
 
   // ---------- lobby ----------

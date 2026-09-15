@@ -47,7 +47,7 @@
         <button id="btnSolo" class="ghost">Jogar sozinho (bots)</button>
         <button id="btnHost" class="alt">Criar sala</button>
         <label><input type="checkbox" id="withBots" checked> preencher vagas com bots</label>
-        <label>Bots <select id="botKind"><option value="script">script</option><option value="nn">rede neural (híbrida)</option><option value="raw">rede PPO (controle total)</option></select></label>
+        <label>Bots <select id="botKind"><option value="script">script</option><option value="nn">híbrido ES (clonado)</option><option value="nn_ppo">híbrido PPO (do zero, em treino)</option><option value="nn_zero">híbrido ES (do zero, em treino)</option><option value="raw">PPO controle total (do zero, em treino)</option></select></label>
       </div>
       <div class="row">
         <input id="code" maxlength="5" placeholder="CÓDIGO">
@@ -69,21 +69,23 @@
   </div>
 
   <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
-  <script src="js/config.js?v=53"></script>
-  <script src="js/vec.js?v=53"></script>
-  <script src="js/input.js?v=53"></script>
-  <script src="js/game.js?v=53"></script>
-  <script src="js/ai.js?v=53"></script>
-  <script src="js/features.js?v=53"></script>
-  <script src="js/nn.js?v=53"></script>
-  <script src="js/nnbot.js?v=53"></script>
-  <script src="js/macrobot.js?v=53"></script>
-  <script src="js/rawbot.js?v=53"></script>
-  <script src="js/nn_raw_weights.js?v=53"></script>
-  <script src="js/nn_weights.js?v=53"></script>
-  <script src="js/render.js?v=53"></script>
-  <script src="js/netstate.js?v=53"></script>
-  <script src="js/net.js?v=53"></script>
-  <script src="js/main.js?v=53"></script>
+  <script src="js/config.js?v=54"></script>
+  <script src="js/vec.js?v=54"></script>
+  <script src="js/input.js?v=54"></script>
+  <script src="js/game.js?v=54"></script>
+  <script src="js/ai.js?v=54"></script>
+  <script src="js/features.js?v=54"></script>
+  <script src="js/nn.js?v=54"></script>
+  <script src="js/nnbot.js?v=54"></script>
+  <script src="js/macrobot.js?v=54"></script>
+  <script src="js/rawbot.js?v=54"></script>
+  <script src="js/nn_raw_weights.js?v=54"></script>
+  <script src="js/nn_weights.js?v=54"></script>
+  <script src="js/nn_macro_ppo.js?v=54"></script>
+  <script src="js/nn_control.js?v=54"></script>
+  <script src="js/render.js?v=54"></script>
+  <script src="js/netstate.js?v=54"></script>
+  <script src="js/net.js?v=54"></script>
+  <script src="js/main.js?v=54"></script>
 </body>
 </html>
