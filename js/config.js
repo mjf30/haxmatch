@@ -19,6 +19,9 @@ const CFG = {
 
   // ---- stamina ----
   STAMINA_MAX: 60, STAMINA_SPRINT: 12, STAMINA_REGEN: 16,   // ~5 s de sprint, recupera em ~4 s
+  STAMINA_REGEN_DELAY: 1.5,         // ao zerar, espera isso antes de começar a regenerar
+  EXHAUST_RECOVER: 0.35,            // fração da barra para sair do estado exausto
+  MUL_EXHAUSTED: 0.75,              // velocidade enquanto exausto
   COST_TACKLE: 5, COST_SLIDE: 14, COST_SLIDE_MISS: 12, COST_DASH: 6, COST_DRIBBLE: 10,
   EFFORT_RECHARGE: 12, EFFORT_DUR: 0.8, DOUBLE_TAP: 0.3,
 

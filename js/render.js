@@ -152,7 +152,7 @@ class Renderer {
       // corpo
       ctx.fillStyle = color;
       ctx.beginPath(); ctx.arc(0, 0, p.r, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = p.recover > 0 ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.55)';
+      ctx.strokeStyle = p.exhausted ? 'rgba(220,50,50,0.9)' : (p.recover > 0 ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.55)');
       ctx.lineWidth = 2; ctx.stroke();
       // goleiro com a bola nas mãos: zona de repulsão
       if (p.isKeeper && p.held && game.ball.owner === p) {
@@ -364,7 +364,7 @@ class Renderer {
       ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(bx - 4, by - 4, bw + 8 + 70, bh + 8);
       ctx.fillStyle = '#333'; ctx.fillRect(bx, by, bw, bh);
       const st = human.stamina / CFG.STAMINA_MAX;
-      ctx.fillStyle = st > 0.3 ? '#6fd36f' : '#e0703c'; ctx.fillRect(bx, by, bw * st, bh);
+      ctx.fillStyle = human.exhausted ? '#d33' : (st > 0.3 ? '#6fd36f' : '#e0703c'); ctx.fillRect(bx, by, bw * st, bh);
       ctx.fillStyle = '#333'; ctx.fillRect(bx + bw + 8, by, 58, bh);
       ctx.fillStyle = human.effortBar >= 1 ? '#ffe66d' : '#8d8a4a'; ctx.fillRect(bx + bw + 8, by, 58 * human.effortBar, bh);
       ctx.fillStyle = '#fff'; ctx.font = '11px sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
@@ -372,6 +372,7 @@ class Renderer {
       if (human.stance === 'def') status += ' · postura defensiva';
       if (human.stance === 'drib') status += ' · postura de drible';
       if (human.held) status += ` · bola nas mãos ${(CFG.GK_HOLD_MAX - human.holdT).toFixed(1)}s`;
+      if (human.exhausted) status += ' · EXAUSTO';
       if (human.recover > 0) status += ' · recuperando';
       if (human.fallen > 0) status += ' · caído';
       if (human.getup > 0) status += ' · levantando';

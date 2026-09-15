@@ -22,7 +22,7 @@ function makePlayer(id, team, idx, home, name) {
     r: CFG.PLAYER_R, isKeeper: false, human: false, active: true,   // active=false: vaga vazia (fora do campo)
     input: emptyInput(), prevInput: emptyInput(),
     stance: 'none', sprinting: false, effortT: 0, effortBar: 1, lastSprintTap: -10,
-    stamina: CFG.STAMINA_MAX,
+    stamina: CFG.STAMINA_MAX, exhausted: false, regenDelay: 0,
     action: null,            // {type, t, dur, dir, hit, ...}
     recover: 0,              // tempo com controle reduzido (erro de tackle, pós-chute)
     fallen: 0,               // caído (carrinho)
@@ -78,7 +78,7 @@ class Game {
       p.isKeeper = false; p.held = false; p.holdT = 0;
       p.stance = 'none'; p.sprinting = false; p.effortT = 0;
       for (const k in p.cd) p.cd[k] = 0;
-      if (first) { p.stamina = CFG.STAMINA_MAX; p.effortBar = 1; }
+      if (first) { p.stamina = CFG.STAMINA_MAX; p.effortBar = 1; p.exhausted = false; p.regenDelay = 0; }
       p.ai = {};
     }
     const b = this.ball;
@@ -204,13 +204,14 @@ class Game {
 
     // sprint e extra effort (Shift duas vezes)
     if (inp.sprint && !prev.sprint) {
-      if (this.now - p.lastSprintTap < CFG.DOUBLE_TAP && p.effortBar >= 1 && !held) {
+      if (this.now - p.lastSprintTap < CFG.DOUBLE_TAP && p.effortBar >= 1 && !held && !p.exhausted) {
         p.effortT = CFG.EFFORT_DUR; p.effortBar = 0;
         this.events.push({ type: 'effort', p });
       }
       p.lastSprintTap = this.now;
     }
-    p.sprinting = inp.sprint && p.stamina > 0 && !held;
+    if (!inp.sprint && prev.sprint) p.lastSprintTap = this.now;   // soltar também abre a janela do duplo toque
+    p.sprinting = inp.sprint && p.stamina > 0 && !held && !p.exhausted;
 
     const incapacitated = p.fallen > 0 || p.getup > 0;
     if (p.action) {
@@ -227,10 +228,15 @@ class Game {
     const keeperFree = p.isKeeper && this.inOwnHalf(p);
     if (p.sprinting && p.moving && !keeperFree && !p.action) {
       p.stamina = Math.max(0, p.stamina - CFG.STAMINA_SPRINT * dt);
+    } else if (p.regenDelay > 0) {
+      p.regenDelay = Math.max(0, p.regenDelay - dt);
     } else {
       p.stamina = Math.min(CFG.STAMINA_MAX, p.stamina + CFG.STAMINA_REGEN * dt);
     }
-    if (keeperFree) p.stamina = CFG.STAMINA_MAX;
+    // zerou: fica exausto (mais lento, sem sprint) e a regeneração demora a começar
+    if (p.stamina <= 0 && !p.exhausted) { p.exhausted = true; p.regenDelay = CFG.STAMINA_REGEN_DELAY; this.events.push({ type: 'exhausted', p }); }
+    if (p.exhausted && p.stamina >= CFG.STAMINA_MAX * CFG.EXHAUST_RECOVER) p.exhausted = false;
+    if (keeperFree) { p.stamina = CFG.STAMINA_MAX; p.exhausted = false; p.regenDelay = 0; }
 
     // goleiro com a bola nas mãos: limite de tempo e sair da área solta a bola
     if (this.ball.owner === p && p.held) {
@@ -350,6 +356,7 @@ class Game {
     else base = CFG.SPEED;
     if (p.charge) base *= CFG.MUL_CHARGE;
     if (p.recover > 0) base *= CFG.MUL_RECOVER;
+    if (p.exhausted) base *= CFG.MUL_EXHAUSTED;
     let desired = { x: inp.mx * base, y: inp.my * base };
     if (p.queued) {
       // com ação de primeira agendada o jogador vai em direção à bola, na

@@ -145,7 +145,10 @@ Recuperação longa, mais longa e cara se errar.
   "prioridade" em disputas.
 
 **2D:** implementado com barra grande (sprint) e barra pequena (extra effort com
-recarga lenta). Goleiro não gasta stamina no próprio campo.
+recarga lenta). Zerar a barra deixa o jogador exausto: mais lento, sem sprint, e
+a regeneração só começa após um atraso; sai do estado ao recuperar 35% da barra.
+O duplo toque do extra effort vale também soltando e reapertando o Shift durante
+uma corrida. Goleiro não gasta stamina no próprio campo.
 
 ### Goleiro
 - Luvas para o primeiro a entrar na área após o kickoff.
