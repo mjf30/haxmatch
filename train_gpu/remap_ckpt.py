@@ -8,7 +8,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 import features_torch as FT
 from ppo import Policy
 
-OLD = dict(SELF=33, BALL=14, MATE=12, OPP=14, GOALS=14, MISC=14, MM=4, MO=5)
+OLD = dict(SELF=35, BALL=14, MATE=12, OPP=14, GOALS=14, MISC=14, MM=4, MO=5)
 NEW = dict(SELF=FT.SELF, BALL=FT.BALL, MATE=FT.MATE, OPP=FT.OPP, GOALS=FT.GOALS, MISC=FT.MISC, MM=FT.MAX_MATES, MO=FT.MAX_OPPS)
 
 

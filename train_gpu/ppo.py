@@ -148,6 +148,7 @@ def main():
             # ---- recompensas ----
             rew = torch.zeros(B, P, device=dev)
             dsc = (sim.score - prevScore).float()          # [B,2] gols neste passo
+            stat['goals'] += float(dsc.sum())
             prevScore = sim.score.clone()
             gteam = dsc[:, 0].view(B, 1) * (sim.team == 0).view(1, P).float() + dsc[:, 1].view(B, 1) * (sim.team == 1).view(1, P).float()
             gopp = dsc[:, 1].view(B, 1) * (sim.team == 0).view(1, P).float() + dsc[:, 0].view(B, 1) * (sim.team == 1).view(1, P).float()
@@ -157,14 +158,14 @@ def main():
             dbx = torch.where(playing.view(B, 1), dbx.clamp(-0.05, 0.05), torch.zeros_like(dbx))
             rew += 0.3 * dbx
             if 'shot' in ev:
-                rew += 0.02 * ev['shot'].float()
+                rew += 0.0 * ev['shot'].float()
                 # chute na direção do gol adversário (a trajetória reta cruza a boca do gol)
                 bv = sim.bvel; bp = sim.bpos
                 vx = bv[:, 0].view(B, 1) * sim.dir.view(1, P)
                 tcross = (W2 - bp[:, 0].view(B, 1) * sim.dir.view(1, P)) / vx.clamp(min=1e-3)
                 ycross = bp[:, 1].view(B, 1) + bv[:, 1].view(B, 1) * tcross
                 onT = ev['shot'] & (vx > 100) & (tcross > 0) & (ycross.abs() < CFG['GOAL_W'] / 2)
-                rew += 0.08 * onT.float()
+                rew += 0.04 * onT.float()
                 # defesa: chute adversário na direção do gol foi permitido -> penalidade coletiva do time que defende
                 onTb = onT.any(dim=1)
                 shooterTeam = torch.where(onTb, sim.team[onT.float().argmax(dim=1)], torch.full_like(sim.lastTeam, -1))
@@ -233,18 +234,40 @@ def main():
             sameT = (sim.team.view(1, P, 1) == sim.team.view(1, 1, P)) & ~torch.eye(P, dtype=torch.bool, device=dev).view(1, P, P)
             wgt = sameT.float() * fieldm.view(B, 1, P)
             spread = (dpp * wgt).sum(-1) / wgt.sum(-1).clamp(min=1) / 500
-            rew += 0.002 * spread * poss * fieldm
+            # espaçamento SEMPRE (com e sem a bola): média das distâncias entre companheiros de linha
+            rew += 0.004 * spread * fieldm
+            # companheiros de linha colados (< 100 px): penalidade por par
+            close = ((dpp < 100) & sameT).float() * fieldm.view(B, 1, P) * fieldm.view(B, P, 1)
+            rew -= 0.003 * close.sum(-1)
+            # três ou mais do mesmo time em cima da bola, em qualquer fase
             near = ((sim.pos - sim.bpos.view(B, 1, 2)).norm(dim=-1) < 150).float() * fieldm
             crowd = torch.zeros(B, P, device=dev)
             for tteam in (0, 1):
                 tm = (sim.team == tteam).view(1, P).float()
                 crowd += ((near * tm).sum(dim=1, keepdim=True) >= 3).float() * tm
-            rew -= 0.004 * crowd * poss
+            rew -= 0.006 * crowd
+            # goleiro: fica na área (penalidade fora dela com a bola no próprio campo; bônus dentro);
+            # jogadores de linha não entram na própria área quando há goleiro
+            gk = sim.isKeeper.float()
+            inBoxP = sim.in_own_box().float()
+            ballOwnHalf = torch.where(sim.team.view(1, P) == 0, sim.bpos[:, 0].view(B, 1) < 0, sim.bpos[:, 0].view(B, 1) > 0).float()
+            oppHasBall = ((oteam.view(B, 1) >= 0) & (oteam.view(B, 1) != sim.team.view(1, P))).float()
+            rew -= 0.004 * gk * (1 - inBoxP) * ballOwnHalf * oppHasBall   # só quando o adversário ataca
+            rew += 0.001 * gk * inBoxP
+            teamHasGk = torch.zeros(B, P, device=dev)
+            for tteam in (0, 1):
+                tm = (sim.team == tteam).view(1, P).float()
+                teamHasGk += ((gk * tm).sum(dim=1, keepdim=True) > 0).float() * tm
+            rew -= 0.003 * (1 - gk) * inBoxP * teamHasGk
+            # controle de campo: cada jogador de linha ganha pela própria fatia (Voronoi) acima da média
+            cnt, _, _ = FT.pitch_control(sim)
+            share = cnt / (FT.GX * FT.GY)
+            rew += 0.02 * (share - 1.0 / P) * fieldm
             # partida terminou (tempo) -> episódio acaba; reinicia essas partidas
             done = (sim.state == 3)
             if done.any():
                 idx = done.nonzero().squeeze(1)
-                stat['goals'] += float(sim.score[idx].sum()); stat['matches'] += float(idx.numel())
+                stat['matches'] += float(idx.numel())
                 sim.time[idx] = sim.seconds; sim.score[idx] = 0; prevScore[idx] = 0
                 sim.stamina[idx] = CFG['STAMINA_MAX']; sim.effortBar[idx] = 1; sim.exhausted[idx] = False
                 sim.kickoffTeam[idx] = (torch.rand(idx.numel(), device=dev) < 0.5).long()
@@ -292,7 +315,7 @@ def main():
                 stats_pi += float(pl.detach()); stats_v += float(vl.detach()); stats_ent += float(ent.mean().detach()); nb += 1
         # ---- log ----
         if it % 5 == 0 or it == it0 + 1:
-            m = max(1.0, stat['matches'])
+            m = max(1.0, stat['steps'] * B / (sim.seconds * 60.0))   # partidas-equivalentes jogadas nesta janela
             gsteps = max(1, stat['steps']) * B
             print(f"it {it} · {(time.time() - t0) / 60:.1f} min · partidas {int(stat['matches'])} · gols/partida {stat['goals'] / m:.2f} · "
                   f"chutes/partida {stat['shots'] / m:.1f} · domínios/partida {stat['control'] / m:.1f} · passes/partida {stat['passes'] / m:.1f} (completos {stat['passOk'] / m:.1f}) · "

@@ -5,7 +5,7 @@ import torch
 from sim_torch import CFG, ACT_NONE, ST_DRIB, ST_DEF, CH_SHOT, Q_NONE, M_PLAY
 
 MAX_MATES, MAX_OPPS = 4, 5
-SELF, BALL, MATE, OPP, GOALS, MISC = 35, 14, 12, 14, 14, 14
+SELF, BALL, MATE, OPP, GOALS, MISC = 36, 14, 12, 14, 14, 23
 SIZE = SELF + BALL + MAX_MATES * MATE + MAX_OPPS * OPP + GOALS + MISC   # 135
 GX, GY = 12, 7
 
@@ -76,6 +76,17 @@ def build(sim):
     free = torch.where(cone, dq, torch.full_like(dq, 600.0)).min(dim=-1).values.clamp(max=600)
     put((free / 600).unsqueeze(-1))
     put((sim.cd['dash'] > 0).float().unsqueeze(-1)); put((sim.cd['dive'] > 0).float().unsqueeze(-1))
+    # vértice do envoltório convexo do meu time (linha): extremo em alguma de 16 direções
+    fieldMask = ~sim.isKeeper | ~sim.in_own_box()                                # [B,P] linha, ou goleiro fora da área (líbero)
+    sameInc = (team.view(1, P, 1) == team.view(1, 1, P))                         # [1,p,q] inclui o próprio
+    angs = torch.arange(16, device=d).float() * math.pi / 8
+    dirs = torch.stack([torch.cos(angs), torch.sin(angs)], -1)                   # [16,2]
+    proj = (sim.pos.view(B, P, 1, 2) * dirs.view(1, 1, 16, 2)).sum(-1)          # [B,q,16]
+    projQ = torch.where((sameInc.expand(B, -1, -1) & fieldMask.view(B, 1, P)).unsqueeze(-1), proj.view(B, 1, P, 16).expand(B, P, P, 16), torch.full((B, P, P, 16), -1e9, device=d))
+    mx = projQ.max(dim=2).values                                                 # [B,p,16]
+    isExt = (proj >= mx - 1e-3).any(dim=-1).float()                              # [B,p]
+    nField = (sameInc.expand(B, -1, -1) & fieldMask.view(B, 1, P)).sum(-1).float()
+    put((torch.where(nField <= 2, torch.ones_like(isExt), isExt) * fieldMask.float()).unsqueeze(-1))
 
     # ---- bola (12) ----
     bp = sim.bpos.view(B, 1, 2).expand(B, P, 2)
@@ -221,6 +232,28 @@ def build(sim):
     oppField = oppm.expand(B, -1, -1) & ~sim.isKeeper.view(B, 1, P)
     put(((oppField & (xs < lastX.unsqueeze(-1))).sum(-1).float() / 5).unsqueeze(-1))
     put((sim.state == M_PLAY).float().view(B, 1, 1).expand(B, P, 1))
+    # estrutura do meu time e do adversário (jogadores de linha): centro relativo, largura, profundidade, área
+    def shape(maskPQ):   # maskPQ [B,p,q]
+        m = maskPQ.float()
+        n = m.sum(-1).clamp(min=1)
+        px = sim.pos[..., 0].view(B, 1, P); py = sim.pos[..., 1].view(B, 1, P)
+        cx = (px * m).sum(-1) / n; cy = (py * m).sum(-1) / n
+        big = 1e9
+        minx = torch.where(maskPQ, px.expand(B, P, P), torch.full_like(m, big)).min(-1).values
+        maxx = torch.where(maskPQ, px.expand(B, P, P), torch.full_like(m, -big)).max(-1).values
+        miny = torch.where(maskPQ, py.expand(B, P, P), torch.full_like(m, big)).min(-1).values
+        maxy = torch.where(maskPQ, py.expand(B, P, P), torch.full_like(m, -big)).max(-1).values
+        has = maskPQ.any(-1)
+        w = torch.where(has, maxy - miny, torch.zeros_like(cx)); dd = torch.where(has, maxx - minx, torch.zeros_like(cx))
+        cx = torch.where(has, cx, torch.zeros_like(cx)); cy = torch.where(has, cy, torch.zeros_like(cy))
+        return cx, cy, w, dd
+    mineM = sameInc.expand(B, -1, -1) & fieldMask.view(B, 1, P)
+    theirsM = oppm.expand(B, -1, -1) & fieldMask.view(B, 1, P)
+    for (mm, withArea) in ((mineM, True), (theirsM, False)):
+        cx, cy, w, dd = shape(mm)
+        put(((cx - sim.pos[..., 0]) * dirp.view(1, P) * POS).unsqueeze(-1)); put(((cy - sim.pos[..., 1]) * POS).unsqueeze(-1))
+        put((w / CFG['FIELD_H']).unsqueeze(-1)); put((dd / CFG['FIELD_W']).unsqueeze(-1))
+        if withArea: put((w * dd / (CFG['FIELD_W'] * CFG['FIELD_H']) * 4).unsqueeze(-1))
     x = torch.cat(out, -1)
     assert x.shape[-1] == SIZE, x.shape
     return x

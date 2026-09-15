@@ -4,7 +4,7 @@
 // posições relativas ao jogador e normalizadas. Tamanho fixo (vagas vazias = zeros).
 const Features = (() => {
   const MAX_MATES = 4, MAX_OPPS = 5;
-  const SELF = 35, BALL = 14, MATE = 12, OPP = 14, GOALS = 14, MISC = 14;
+  const SELF = 36, BALL = 14, MATE = 12, OPP = 14, GOALS = 14, MISC = 23;
   const SIZE = SELF + BALL + MAX_MATES * MATE + MAX_OPPS * OPP + GOALS + MISC;
   const POS = 1 / (CFG.FIELD_W / 2);   // posições em [-1, 1]
   const VEL = 1 / 300;
@@ -48,6 +48,24 @@ const Features = (() => {
     return tot ? own / tot : 0;
   }
 
+  // estrutura de um time (jogadores de linha): centro, largura (y), profundidade (x), área da caixa
+  function teamShape(list) {
+    if (!list.length) return { cx: 0, cy: 0, w: 0, d: 0, area: 0, minx: 0, maxx: 0, miny: 0, maxy: 0 };
+    let sx = 0, sy = 0, minx = Infinity, maxx = -Infinity, miny = Infinity, maxy = -Infinity;
+    for (const q of list) { sx += q.pos.x; sy += q.pos.y; minx = Math.min(minx, q.pos.x); maxx = Math.max(maxx, q.pos.x); miny = Math.min(miny, q.pos.y); maxy = Math.max(maxy, q.pos.y); }
+    return { cx: sx / list.length, cy: sy / list.length, w: maxy - miny, d: maxx - minx, area: (maxy - miny) * (maxx - minx), minx, maxx, miny, maxy };
+  }
+  // vértice do envoltório convexo: é o extremo do time em alguma de 16 direções
+  function onHull(p, list) {
+    if (list.length <= 2) return 1;
+    for (let k = 0; k < 16; k++) {
+      const a = k * Math.PI / 8, dx = Math.cos(a), dy = Math.sin(a);
+      const me = p.pos.x * dx + p.pos.y * dy;
+      if (list.every((q) => q === p || q.pos.x * dx + q.pos.y * dy <= me + 1e-6)) return 1;
+    }
+    return 0;
+  }
+
   function build(p, g, out) {
     const pc = pitchControl(g);
     const cells = GX * GY;
@@ -88,6 +106,10 @@ const Features = (() => {
       put(free / 600);
     }
     put(p.cd.dash > 0 ? 1 : 0); put(p.cd.dive > 0 ? 1 : 0);   // cooldowns do dash e do mergulho (ações do controle total)
+    // "linha" para a estrutura: quem não é goleiro, ou o goleiro fora da área (líbero)
+    const isFieldQ = (q) => !q.isKeeper || !g.inOwnBox(q);
+    const myField = g.players.filter((q) => q.active && q.team === p.team && isFieldQ(q));
+    put(isFieldQ(p) ? onHull(p, myField) : 0);                    // sou vértice do envoltório convexo do time (borda) ou estou no meio
 
     // ---- bola (12) ----
     relPos(b.pos); put(V.dist(p.pos, b.pos) * DIST);
@@ -183,6 +205,12 @@ const Features = (() => {
       put(oppsAll.filter((o) => !o.isKeeper && o.pos.x * dir < lastX).length / 5);
     }
     put(g.state === 'play' ? 1 : 0);
+    {   // estrutura do meu time e do adversário (jogadores de linha)
+      const mine = teamShape(myField);
+      const theirs = teamShape(oppsAll.filter(isFieldQ));
+      relPos({ x: mine.cx, y: mine.cy }); put(mine.w / CFG.FIELD_H); put(mine.d / CFG.FIELD_W); put(mine.area / (CFG.FIELD_W * CFG.FIELD_H) * 4);
+      relPos({ x: theirs.cx, y: theirs.cy }); put(theirs.w / CFG.FIELD_H); put(theirs.d / CFG.FIELD_W);
+    }
     return out;
   }
 

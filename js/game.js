@@ -222,7 +222,9 @@ class Game {
     // barra da arrancada: durante o impulso escoa gradualmente (da metade até zero);
     // fora dele recarrega, mais rápido com a stamina cheia
     if (p.effortT > 0) p.effortBar = Math.max(0, p.effortBar - (0.5 / CFG.EFFORT_DUR) * dt);
-    else p.effortBar = Math.min(1, p.effortBar + dt / (p.stamina >= CFG.STAMINA_MAX - 0.01 ? CFG.EFFORT_RECHARGE_FULL : CFG.EFFORT_RECHARGE));
+    // líbero (goleiro no próprio campo) tem stamina infinita, mas a arrancada recarrega na taxa normal
+    const fullBar = p.stamina >= CFG.STAMINA_MAX - 0.01 && !(p.isKeeper && this.inOwnHalf(p));
+    if (p.effortT <= 0) p.effortBar = Math.min(1, p.effortBar + dt / (fullBar ? CFG.EFFORT_RECHARGE_FULL : CFG.EFFORT_RECHARGE));
     p.dribbleLag = Math.max(0, p.dribbleLag - dt);
     if (p.dribbleChainT > 0) {
       p.dribbleChainT = Math.max(0, p.dribbleChainT - dt);

@@ -232,7 +232,7 @@ class TorchSim:
         self.recover = (self.recover - DT).clamp(min=0); self.fallen = (self.fallen - DT).clamp(min=0)
         self.getup = (self.getup - DT).clamp(min=0); self.pushFlash = (self.pushFlash - DT).clamp(min=0)
         self.effortT = (self.effortT - DT).clamp(min=0)
-        full = self.stamina >= CFG['STAMINA_MAX'] - 0.01
+        full = (self.stamina >= CFG['STAMINA_MAX'] - 0.01) & ~(self.isKeeper & self.in_own_half())   # líbero: recarga normal
         self.effortBar = torch.where(self.effortT > 0, (self.effortBar - (0.5 / CFG['EFFORT_DUR']) * DT).clamp(min=0),
                                      (self.effortBar + DT / torch.where(full, CFG['EFFORT_RECHARGE_FULL'], CFG['EFFORT_RECHARGE'])).clamp(max=1))
         self.dribbleLag = (self.dribbleLag - DT).clamp(min=0)
