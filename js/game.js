@@ -30,7 +30,7 @@ function makePlayer(id, team, idx, home, name) {
     cd: { tackle: 0, slide: 0, dash: 0, dribble: 0, dive: 0, grab: 0, gloves: 0, through: 0 },
     charge: null,            // {kind:'shot'|'pass', t, dir0, lastAngle, spin}
     queued: null,            // ação de primeira agendada na zona de ação: {kind:'shot'|'pass'|'push', t, charging, dir0, lastAngle, spin}
-    armed: { shoot: false, pass: false, special: false },   // botão apertado e ainda não consumido (pré-carga)
+    armed: { shoot: false, pass: false },   // botão segurado e ainda não consumido (pré-carga de chute/passe)
     touchChain: 0,           // toques de primeira seguidos sem dominar (a partir do 2º não há passo acelerado)
     held: false, holdT: 0,   // goleiro com a bola nas mãos
     pushFlash: 0, callT: 0, fakeT: 0,
@@ -244,7 +244,7 @@ class Game {
     const inZone = this.ballInZone(p);
     // botão "armado": apertou e ainda não usou; soltar desarma. Permite pré-carregar
     // antes da bola entrar na zona de ação.
-    for (const k of ['shoot', 'pass', 'special']) {
+    for (const k of ['shoot', 'pass']) {
       if (pressed(k)) p.armed[k] = true;
       if (!inp[k]) p.armed[k] = false;
     }
@@ -271,7 +271,7 @@ class Game {
     if (!canKick && inZone) {
       if (p.armed.shoot) { p.armed.shoot = false; p.queued = { kind: 'shot', t: 0, charging: true, dir0: this.kickDir(p), lastAngle: V.angle(p.facing), spin: 0 }; return; }
       if (p.armed.pass) { p.armed.pass = false; p.queued = { kind: 'pass', t: 0, charging: true }; return; }
-      if (p.armed.special) { p.armed.special = false; p.queued = { kind: 'push', t: 0, charging: false }; return; }
+      if (pressed('special')) { p.queued = { kind: 'push', t: 0, charging: false }; return; }   // push é toque, não segura
     }
 
     // ---- carga de chute / passe com a bola dominada ----
@@ -303,7 +303,6 @@ class Game {
       if (hasBall && p.effortT > 0 && p.moving) { this.push(p, true); return; }
       if (held && pressed('throwBall')) { this.throwBall(p); return; }
       if (pressed('special')) {
-        p.armed.special = false;
         if (held) { p.held = false; p.holdT = 0; return; }                     // solta e conduz
         if (p.stance === 'drib') { if (p.cd.dribble <= 0 && p.stamina >= CFG.COST_DRIBBLE * 0.5) this.startDribble(p); return; }
         this.push(p, p.sprinting);
