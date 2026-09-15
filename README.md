@@ -135,7 +135,31 @@ implementada (`train/clone.js` para clonagem+DAgger, `train/train.js --policy ra
 para ES com currículos `--attack/--build`), mas não chegou a jogar bem: o ES
 puro trava em "segurar a bola" e a clonagem bruta não reproduz o script.
 
-No lobby, "Bots: rede neural" usa os pesos treinados no lugar da IA programada.
+No lobby, "Bots: rede neural (híbrida)" usa os pesos treinados no lugar da IA programada.
+
+## Controle total por PPO na GPU (`train_gpu/`)
+
+Caminho para a rede controlar o boneco de ponta a ponta (movimento, mira, efeito,
+botões), sem as rotinas do script:
+
+- `sim_torch.py`: a simulação do jogo reescrita em tensores (PyTorch), rodando
+  milhares de partidas em paralelo na GPU. Lê o mesmo `js/config.js`. Paridade
+  verificada contra `js/game.js` em `parity.py` (corrida, condução, chute, passe,
+  push, domínio: 14/14 idênticos).
+- `features_torch.py`: a mesma observação de `js/features.js`, na mesma ordem
+  (`parity_features.py` compara os vetores num estado real: diferença 0).
+- `ppo.py`: PPO com ações discretas (9 direções, 16 setores de mira, efeito
+  -1/0/+1, botões), self-play em liga de versões congeladas, recompensa por gol,
+  avanço da bola, chutes, domínios, passes, roubos e defesas. Exporta
+  `js/nn_raw_weights.js`, lido por `js/rawbot.js` no navegador ("Bots: rede PPO").
+- `train/eval_raw.js`: avalia os pesos exportados na simulação JS contra o script
+  e o híbrido (defesa contra exploits que só existiriam na simulação de treino).
+
+```
+python train_gpu/parity.py && python train_gpu/parity_features.py
+python train_gpu/ppo.py --envs 2048 --iters 4000 --seconds 90 --team 4
+node train/eval_raw.js 6 180
+```
 
 Veja `docs/mecanicas.md` para a pesquisa das mecânicas do Rematch e como cada
 uma foi adaptada.

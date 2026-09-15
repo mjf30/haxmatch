@@ -2,3 +2,5 @@ node_modules/
 .DS_Store
 Thumbs.db
 train/latest.json
+train_gpu/ckpt.pt
+train_gpu/__pycache__/

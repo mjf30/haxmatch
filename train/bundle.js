@@ -5,9 +5,9 @@ const path = require('path');
 const vm = require('vm');
 
 function loadSim() {
-  const files = ['config.js', 'vec.js', 'input.js', 'game.js', 'ai.js', 'features.js', 'nn.js', 'nnbot.js', 'macrobot.js'];
+  const files = ['config.js', 'vec.js', 'input.js', 'game.js', 'ai.js', 'features.js', 'nn.js', 'nnbot.js', 'macrobot.js', 'rawbot.js'];
   const code = files.map((f) => fs.readFileSync(path.join(__dirname, '..', 'js', f), 'utf8').replace(/^'use strict';/, '')).join('\n')
-    + '\nthis.__exports = { Game, AI, CFG, V, emptyInput, Features, NN, NNBot, MacroBot };';
+    + '\nthis.__exports = { Game, AI, CFG, V, emptyInput, Features, NN, NNBot, MacroBot, RawBot };';
   const sandbox = { console, Math, Infinity, Date, Float32Array };
   vm.createContext(sandbox);
   vm.runInContext(code, sandbox, { filename: 'sim-bundle.js' });
@@ -43,8 +43,8 @@ function setupScenario(sim, g, nnTeam, scenario, rng) {
 function mulberry(a) { return function () { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 
 function playMatch(sim, policy, opp, opts) {
-  const { Game, AI, CFG, V, NNBot, MacroBot } = sim;
-  const act = (p, g, pol) => (pol.kind === 'macro' ? MacroBot.think(p, g, CFG.DT, pol) : NNBot.think(p, g, CFG.DT, pol));
+  const { Game, AI, CFG, V, NNBot, MacroBot, RawBot } = sim;
+  const act = (p, g, pol) => (pol.kind === 'macro' ? MacroBot.think(p, g, CFG.DT, pol) : pol.kind === 'raw2' ? RawBot.think(p, g, CFG.DT, pol) : NNBot.think(p, g, CFG.DT, pol));
   const seconds = opts.seconds || 60;
   const nnTeam = opts.nnTeam || 0;
   const rng = mulberry(opts.seed || 1);
