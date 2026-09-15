@@ -84,6 +84,7 @@ def main():
     ap.add_argument('--league_every', type=int, default=50); ap.add_argument('--league_frac', type=float, default=0.3)
     ap.add_argument('--resume', type=str, default=None); ap.add_argument('--seed', type=int, default=1)
     ap.add_argument('--export_every', type=int, default=25)
+    ap.add_argument('--league_init', type=str, default=None)   # checkpoints congelados que ficam na liga o treino inteiro (benchmark), separados por vírgula
     ap.add_argument('--approach', type=float, default=0.02)   # shaping denso: aproximar-se da bola solta (currículo inicial)
     ap.add_argument('--sanity', action='store_true')
     ap.add_argument('--sanity2', action='store_true')
@@ -108,6 +109,14 @@ def main():
     leagueEnv = torch.zeros(B, dtype=torch.bool, device=dev)
     leagueIdx = torch.zeros(B, dtype=torch.long, device=dev)
     oppPols = []
+    nFixed = 0
+    if args.league_init:
+        for path in args.league_init.split(','):
+            ckl = torch.load(path, map_location=dev)
+            snap = Policy().to(dev); snap.load_state_dict(ckl['pol']); snap.eval()
+            for p_ in snap.parameters(): p_.requires_grad_(False)
+            league.append(snap.state_dict()); oppPols.append(snap); nFixed += 1
+            print('liga: adversário fixo', path, 'iteração', ckl.get('it'))
     team1 = (sim.team == 1).view(1, P).expand(B, P)
     ckpt = args.ckpt or os.path.join(os.path.dirname(__file__), 'ckpt_sanity.pt' if (args.sanity or args.sanity2) else 'ckpt.pt')
     outjs = os.path.join(os.path.dirname(__file__), '..', 'js', 'nn_raw_weights.js')
@@ -325,9 +334,9 @@ def main():
             snap = Policy().to(dev); snap.load_state_dict(pol.state_dict()); snap.eval()
             for p_ in snap.parameters(): p_.requires_grad_(False)
             league.append(snap.state_dict()); oppPols.append(snap)
-            if len(oppPols) > 6:
-                oppPols.pop(0); league.pop(0)
-                leagueIdx = (leagueIdx - 1).clamp(min=0)
+            if len(oppPols) > 6 + nFixed:   # os fixos nunca saem; o mais antigo dos demais sai
+                oppPols.pop(nFixed); league.pop(nFixed)
+                leagueIdx = torch.where(leagueIdx > nFixed, leagueIdx - 1, leagueIdx)
         if it % args.export_every == 0:
             torch.save({'pol': pol.state_dict(), 'opt': opt.state_dict(), 'it': it}, ckpt)
             export_js(pol, outjs, f'iteração {it}, {T}v{T}, {args.seconds}s/partida')
