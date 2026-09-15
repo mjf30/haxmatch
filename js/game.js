@@ -64,7 +64,7 @@ class Game {
         this.players.push(makePlayer(id++, team, i, home, name));
       }
     }
-    this.ball = { pos: { x: 0, y: 0 }, vel: { x: 0, y: 0 }, spin: 0, r: CFG.BALL_R, owner: null, lastTouch: null, prevTouch: null, lastTeam: -1, rot: 0 };
+    this.ball = { pos: { x: 0, y: 0 }, vel: { x: 0, y: 0 }, spin: 0, r: CFG.BALL_R, owner: null, lastTouch: null, prevTouch: null, lastTeam: -1, rot: 0, lock: null };
     this.kickoffTeam = this.rng() < 0.5 ? 0 : 1;   // primeiro kickoff: time sorteado
     this.kickoff(true);
   }
@@ -82,7 +82,7 @@ class Game {
       p.ai = {};
     }
     const b = this.ball;
-    b.pos = { x: 0, y: 0 }; b.vel = { x: 0, y: 0 }; b.spin = 0; b.owner = null;
+    b.pos = { x: 0, y: 0 }; b.vel = { x: 0, y: 0 }; b.spin = 0; b.owner = null; b.lock = null;
     // saída: um jogador do time que dá o kickoff fica no meio com a bola, de frente
     // para o próprio campo (de costas para o ataque)
     const team = this.kickoffTeam;
@@ -159,8 +159,10 @@ class Game {
     this.keeperRepel(dt);
     for (const p of this.players) if (p.active) this.clampPlayer(p);
     this.updateBall(dt);
+    if (this.state === 'play') this.resolveLocks();
     if (this.state === 'play') this.contacts();
-    if (!this.ball.owner) Game.wallsFree(this.ball);   // contatos podem empurrar a bola para a parede
+    // contatos podem empurrar a bola para fora: re-aplica os limites da arena
+    if (!this.ball.owner) Game.wallsFree(this.ball); else this.ball.pos = Game.clampArena(this.ball.pos, this.ball.r);
     if (this.state === 'play') this.updateGloves(dt);
     if (this.state === 'play') this.checkGoal();
     for (const p of this.players) p.prevInput = p.input;
@@ -361,10 +363,10 @@ class Game {
     if (p.exhausted && p.effortT <= 0) base *= CFG.MUL_EXHAUSTED;
     let desired = { x: inp.mx * base, y: inp.my * base };
     if (p.queued) {
-      // com ação de primeira agendada o jogador vai em direção à bola, na
-      // velocidade normal do estado dele (sem boost algum)
+      // ação travada: "snap" em direção à bola na velocidade de sprint (nunca
+      // mais rápido do que correr sem bola)
       const toBall = V.norm(V.sub(this.ball.pos, p.pos));
-      desired = V.mul(toBall, base);
+      desired = V.mul(toBall, Math.max(base, Math.min(CFG.LOCK_SNAP_SPEED, CFG.SPRINT)));
     }
     const diff = V.sub(desired, p.vel);
     const dl = V.len(diff);
@@ -576,10 +578,36 @@ class Game {
     this.events.push({ type: 'push', p, strong });
   }
 
-  // executa a ação agendada na zona de ação no instante do toque
+  // Prioridade (Rematch): entre os jogadores com ação travada na bola solta,
+  // vence o mais perto e indo mais rápido em direção a ela; goleiro na própria
+  // área tem vantagem. Os outros perdem a trava e ficam um instante sem controle.
+  resolveLocks() {
+    const b = this.ball;
+    if (b.owner) { b.lock = null; return; }
+    const cands = this.players.filter((p) => p.active && p.queued && this.ballInZone(p));
+    if (!cands.length) { b.lock = null; return; }
+    let best = null, bs = Infinity;
+    for (const p of cands) {
+      const toBall = V.sub(b.pos, p.pos), d = V.len(toBall);
+      const approach = d > 1e-6 ? V.dot(p.vel, V.mul(toBall, 1 / d)) : 0;
+      let score = d - approach * 0.2;
+      if (p.isKeeper && this.inOwnBox(p)) score -= 40;
+      if (b.lock === p) score -= 8;   // quem já tinha a trava não a perde por empate
+      if (score < bs) { bs = score; best = p; }
+    }
+    for (const p of cands) {
+      if (p === best) continue;
+      p.queued = null; p.recover = Math.max(p.recover, CFG.LOCK_LOSE_RECOVER);
+      this.events.push({ type: 'lost-prio', p, winner: best });
+    }
+    b.lock = best;
+  }
+
+  // executa a ação travada no instante do toque
   fireQueued(p) {
     const q = p.queued;
     p.queued = null;
+    this.ball.lock = null;
     if (q.kind === 'shot') {
       this.shoot(p, q);
     } else if (q.kind === 'pass') {
@@ -750,6 +778,14 @@ class Game {
       if (d >= R) continue;
       if (canGrab && p.queued) { this.fireQueued(p); continue; }   // toque de primeira
       const speed = V.len(b.vel);
+      // outro jogador travou a ação nessa bola: este não domina, só desvia fisicamente
+      if (b.lock && b.lock !== p) {
+        const n = d > 1e-6 ? V.norm(V.sub(b.pos, p.pos)) : { x: 1, y: 0 };
+        b.pos = V.add(p.pos, V.mul(n, hb + b.r + 0.5));
+        const rel = V.sub(b.vel, p.vel);
+        if (V.dot(rel, n) < 0) b.vel = V.add(V.mul(V.reflect(rel, n), CFG.DEFLECT_BOUNCE), p.vel);
+        continue;
+      }
       const hands = p.isKeeper && this.inOwnBox(p);
       const limit = hands ? (p.stance === 'def' ? CFG.GK_PARRY_SPEED * 1.3 : CFG.GK_PARRY_SPEED)
         : (p.stance === 'def' ? CFG.CONTROL_MAX_DEF : CFG.CONTROL_MAX);

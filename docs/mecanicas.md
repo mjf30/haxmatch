@@ -51,19 +51,28 @@ ou chapéus).
 de velocidade rebate no corpo em vez de grudar; na postura defensiva o limiar é
 maior; goleiro dentro da área pega qualquer bola.
 
-### Zona de ação (ação de primeira)
-- Quando a bola solta chega perto o bastante do jogador ela brilha. Apertar chute,
-  passe ou push nesse momento não executa nada de imediato: agenda a ação. O
-  jogador acelera um pouco em direção à bola e, no instante do primeiro toque,
-  executa a ação sem dominar.
+### Alvo na bola e prioridade (ação de primeira)
+- Quando a bola solta está ao alcance, aparece um alvo (losango azul) nela. Apertar
+  chute, passe ou push trava a ação: o input é bufferizado (pode apertar antes de o
+  alvo aparecer), o jogador dá um "snap" em direção à bola e a ação sai no toque,
+  sem dominar. Fonte: Feature Focus "Volley Actions" da Sloclap: "Volley Actions
+  are buffered... the player will snap towards the ball, and the buffered action is
+  executed"; em disputa "the player closest to the ball and going towards it the
+  fastest will win the contest", goleiro/líbero tem prioridade.
+- Ou seja, a ação é garantida para quem tem a prioridade; quem perde a disputa
+  tem a ação cancelada.
 
-**2D:** bola solta a até `ACTION_RADIUS` do corpo brilha; LMB/RMB/Espaço criam uma
-ação agendada (chute continua carregando enquanto o botão está segurado). Chute e passe
-(botões segurados) podem ser pré-carregados antes de a bola entrar na zona: armam
-no instante em que ela entra, sem apertar de novo; o push (Espaço) é um toque e
-precisa ser apertado com a bola já na zona. O movimento é redirecionado para a bola na
-velocidade normal do jogador (sem nenhum boost). No contato a ação dispara. Sair da zona ou
-a bola ser dominada por outro cancela.
+**2D:** bola solta a até `ACTION_RADIUS` do corpo mostra o losango; LMB/RMB/Espaço
+travam a ação (chute continua carregando enquanto o botão está segurado). Chute e
+passe (botões segurados) podem ser pré-carregados antes de a bola entrar no
+alcance: travam no instante em que ela entra; o push (Espaço) é um toque e precisa
+ser apertado com a bola já no alcance. Com a ação travada o jogador faz o snap até
+a bola na velocidade de sprint (nunca mais rápido do que correr). Prioridade: se
+mais de um jogador trava a mesma bola, vence o mais perto e indo mais rápido até
+ela (goleiro na área tem vantagem); os outros perdem a trava e ficam um instante
+sem controle. Enquanto alguém tem a trava, os demais só desviam a bola com o corpo,
+não a dominam. No contato a ação dispara. Sair do alcance ou a bola ser dominada
+cancela.
 
 ### Push ball (empurrar e correr)
 - Espaço enquanto corre com a bola: o personagem toca a bola para frente, ela sai

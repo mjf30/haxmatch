@@ -33,7 +33,9 @@ const CFG = {
   POST_R: 6,
 
   // ---- domínio ----
-  ACTION_RADIUS: 70,                // zona de ação: bola solta a essa distância do corpo permite agendar chute/passe/push de primeira
+  ACTION_RADIUS: 70,                // alcance do "alvo": bola solta a essa distância permite travar chute/passe/push de primeira
+  LOCK_SNAP_SPEED: 210,             // velocidade do snap até a bola com ação travada (= sprint, nunca mais rápido que correr)
+  LOCK_LOSE_RECOVER: 0.25,          // quem perde a prioridade numa disputa fica esse tempo com controle reduzido
   CONTROL_MAX: 600,                 // acima disso a bola rebate no corpo
   CONTROL_MAX_DEF: 850,            // postura defensiva domina bolas mais fortes
   HITBOX_MUL: 1.0,                  // sem postura defensiva, a hitbox para a bola é só o corpo

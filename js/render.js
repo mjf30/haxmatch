@@ -238,19 +238,21 @@ class Renderer {
     const b = game.ball;
     const speed = V.len(b.vel);
     ctx.save();
-    // brilho da zona de ação (bola solta ao alcance do humano)
-    if (human && game.ballInZone(human)) {
-      const g = ctx.createRadialGradient(b.pos.x, b.pos.y, b.r, b.pos.x, b.pos.y, b.r + 16);
-      g.addColorStop(0, 'rgba(255,255,160,0.75)'); g.addColorStop(1, 'rgba(255,255,160,0)');
-      ctx.fillStyle = g;
-      ctx.beginPath(); ctx.arc(b.pos.x, b.pos.y, b.r + 16, 0, Math.PI * 2); ctx.fill();
-    }
-    // ação agendada: anel pulsante na bola com a cor da ação
-    if (human && human.queued) {
-      const q = human.queued;
-      const col = q.kind === 'shot' ? 'rgba(255,140,60,0.95)' : q.kind === 'pass' ? 'rgba(120,255,140,0.95)' : 'rgba(90,170,255,0.95)';
-      ctx.strokeStyle = col; ctx.lineWidth = 3;
-      ctx.beginPath(); ctx.arc(b.pos.x, b.pos.y, b.r + 6 + 3 * Math.sin(performance.now() / 60), 0, Math.PI * 2); ctx.stroke();
+    // alvo (Rematch): losango azul quando a bola solta está ao alcance; verde quando a
+    // sua ação está travada nela; vermelho se outro jogador tem a prioridade
+    if (human && !b.owner && game.ballInZone(human)) {
+      const mine = human.queued && b.lock === human;
+      const taken = b.lock && b.lock !== human;
+      const glow = ctx.createRadialGradient(b.pos.x, b.pos.y, b.r, b.pos.x, b.pos.y, b.r + 18);
+      glow.addColorStop(0, mine ? 'rgba(120,255,140,0.6)' : taken ? 'rgba(255,90,90,0.5)' : 'rgba(120,190,255,0.55)');
+      glow.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(b.pos.x, b.pos.y, b.r + 18, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = mine ? 'rgba(120,255,140,0.95)' : taken ? 'rgba(255,90,90,0.9)' : 'rgba(90,170,255,0.9)';
+      ctx.lineWidth = mine ? 3 : 2;
+      const s = b.r + 10 + (mine ? 2 * Math.sin(performance.now() / 70) : 0);
+      ctx.beginPath();
+      ctx.moveTo(b.pos.x, b.pos.y - s); ctx.lineTo(b.pos.x + s, b.pos.y); ctx.lineTo(b.pos.x, b.pos.y + s); ctx.lineTo(b.pos.x - s, b.pos.y); ctx.closePath();
+      ctx.stroke();
     }
     // diamante do push ball (bola nos pés + Shift), verde logo após empurrar
     if (human && ((game.hasBall(human) && human.sprinting) || human.pushFlash > 0)) {
@@ -414,7 +416,7 @@ class Renderer {
         'LMB chute (segurar = força; mover o mouse = efeito) · RMB passe',
         'Espaço: push ball (com bola) / drible (Ctrl+bola) / dash (Ctrl sem bola) / mergulho do goleiro',
         'E tackle · Shift+E carrinho · Ctrl (ou C) postura · F arremesso do goleiro · botão do meio pede a bola',
-        'Bola brilhando = zona de ação: LMB/RMB/Espaço agendam a ação, executada no toque · Shift 2x com bola = arrancada',
+        'Losango na bola = alvo: LMB/RMB/Espaço travam a ação (verde) e ela sai no toque; vermelho = outro tem prioridade',
         'Tab placar/ping (T ou clique = trocar de time) · Q troca jogador (solo) · R reinicia · H ajuda',
         'Enter: tela cheia (bloqueia Ctrl+W e outros atalhos do navegador)',
       ];

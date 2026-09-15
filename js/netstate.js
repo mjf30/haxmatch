@@ -3,7 +3,7 @@
 // Só o que o render/HUD precisa; a simulação continua exclusiva do host.
 const NetState = (() => {
   const STANCES = ['none', 'drib', 'def'];
-  const FLASH_EVENTS = new Set(['steal', 'tackle-fail', 'knockdown', 'save', 'parry', 'effort', 'gloves', 'fake', 'goal', 'first-touch', 'block', 'call']);
+  const FLASH_EVENTS = new Set(['steal', 'tackle-fail', 'knockdown', 'save', 'parry', 'effort', 'gloves', 'fake', 'goal', 'first-touch', 'block', 'call', 'lost-prio']);
 
   // 1 casa decimal para posições/velocidades; 3 para vetores unitários (direções) e frações
   const r1 = (v) => (Math.abs(v) <= 1 ? Math.round(v * 1000) / 1000 : Math.round(v * 10) / 10);
@@ -13,7 +13,7 @@ const NetState = (() => {
     const out = {
       t: 'state', seq,
       time: game.time, score: game.score, state: game.state, msg: game.msg,
-      ball: [b.pos.x, b.pos.y, b.vel.x, b.vel.y, b.spin, b.owner ? b.owner.id : -1, b.rot],
+      ball: [b.pos.x, b.pos.y, b.vel.x, b.vel.y, b.spin, b.owner ? b.owner.id : -1, b.rot, b.lock ? b.lock.id : -1],
       players: game.players.map((p) => [
         p.pos.x, p.pos.y, p.vel.x, p.vel.y, p.facing.x, p.facing.y,
         STANCES.indexOf(p.stance),
@@ -28,7 +28,7 @@ const NetState = (() => {
       ]),
       ev: events.filter((e) => FLASH_EVENTS.has(e.type)).map((e) => ({ type: e.type, p: e.p ? e.p.id : -1, v: e.victim ? e.victim.id : -1, team: e.team })),
     };
-    out.ball = out.ball.map((v, i) => (i === 5 ? v : r1(v)));
+    out.ball = out.ball.map((v, i) => (i === 5 || i === 7 ? v : r1(v)));
     for (const a of out.players) for (let i = 0; i < a.length; i++) if (typeof a[i] === 'number') a[i] = r1(a[i]);
     return out;
   }
@@ -54,6 +54,7 @@ const NetState = (() => {
     const b = game.ball, bb = s.ball;
     b.pos = { x: bb[0], y: bb[1] }; b.vel = { x: bb[2], y: bb[3] }; b.spin = bb[4];
     b.owner = bb[5] >= 0 ? game.players[bb[5]] : null; b.rot = bb[6];
+    b.lock = bb[7] >= 0 ? game.players[bb[7]] : null;
     return s.ev.map((e) => ({ type: e.type, p: e.p >= 0 ? game.players[e.p] : null, victim: e.v >= 0 ? game.players[e.v] : null, team: e.team }));
   }
 
