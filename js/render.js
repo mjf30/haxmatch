@@ -219,7 +219,7 @@ class Renderer {
     if (shotC) {
       const c = shotC;
       const power = Math.min(1, c.t / CFG.CHARGE_MAX);
-      const speed = CFG.SHOT_MIN + (CFG.SHOT_MAX - CFG.SHOT_MIN) * power;
+      const speed = Game.shotSpeed(power, !!(p.queued && p.queued.kind === 'shot'));
       const spin = c.spin * (1 - CFG.SPIN_POWER_FADE * power);
       const pts = game.simulatePath(b.pos, V.mul(c.dir0, speed), spin, 40, 1 / 30);
       ctx.strokeStyle = 'rgba(255,230,120,0.7)'; ctx.lineWidth = 2;

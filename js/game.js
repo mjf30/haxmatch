@@ -584,9 +584,16 @@ class Game {
     p.cd.grab = CFG.KICK_COOLDOWN; p.cd.through = CFG.PASS_THROUGH;
   }
 
-  shoot(p, c) {
+  // força do chute pela carga (0..1); curva convexa: pouco carregado sai lento,
+  // carregado sai forte. De primeira começa mais rápido, mesmo máximo.
+  static shotSpeed(power, first) {
+    const min = first ? CFG.SHOT_MIN_FIRST : CFG.SHOT_MIN;
+    return min + (CFG.SHOT_MAX - min) * Math.pow(V.clamp(power, 0, 1), CFG.SHOT_CURVE);
+  }
+
+  shoot(p, c, first = false) {
     const power = Math.min(1, c.t / CFG.CHARGE_MAX);
-    const speed = CFG.SHOT_MIN + (CFG.SHOT_MAX - CFG.SHOT_MIN) * power;
+    const speed = Game.shotSpeed(power, first);
     const spin = c.spin * (1 - CFG.SPIN_POWER_FADE * power);
     this.kick(p, c.dir0, speed, spin);
     p.recover = 0.1 + 0.2 * power;
@@ -674,7 +681,7 @@ class Game {
     p.queued = null;
     this.ball.lock = null;
     if (q.kind === 'shot') {
-      this.shoot(p, q);
+      this.shoot(p, q, true);
     } else if (q.kind === 'pass') {
       this.pass(p, q);
     } else {

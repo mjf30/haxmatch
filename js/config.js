@@ -45,10 +45,11 @@ const CFG = {
   KICK_COOLDOWN: 0.35, PUSH_COOLDOWN: 0.14, DEFLECT_COOLDOWN: 0.2,
 
   // ---- chute ----
-  CHARGE_MAX: 0.62, SHOT_MIN: 480, SHOT_MAX: 1200,
+  CHARGE_MAX: 0.62, SHOT_MIN: 380, SHOT_MAX: 1200, SHOT_CURVE: 1.8,   // força = min + (max-min)·carga^curva: pouco carregado sai lento
+  SHOT_MIN_FIRST: 520,              // chute de primeira começa mais rápido (mesmo máximo)
   SPIN_GAIN: 3.2, SPIN_POWER_FADE: 0.6,
   // ---- passe ----
-  PASS_CHARGE: 0.4, PASS_MIN: 320, PASS_MAX: 620, PASS_ASSIST_DEG: 9,
+  PASS_CHARGE: 0.4, PASS_MIN: 430, PASS_MAX: 700, PASS_ASSIST_DEG: 9,
   // ---- push ball ----
   PUSH_SPEED: 300, PUSH_WALK_SPEED: 175,   // velocidade absoluta do toque à frente (correndo / andando)
   // ---- tackle em pé ----
