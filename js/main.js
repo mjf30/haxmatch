@@ -39,8 +39,11 @@
   $('code').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('btnJoin').click(); });
   if (params.get('join')) { $('code').value = NetUtil.normalizeCode(params.get('join')); }
   const setStatus = (t, isError) => { status.textContent = t; status.className = isError ? 'err' : ''; };
-  const hideLobby = () => { lobby.hidden = true; canvas.focus(); };
-  const showLobby = () => { lobby.hidden = false; };
+  // duas telas: menu (lobby) e jogo (canvas). A captura de teclado só existe no jogo.
+  const showGameScreen = () => { lobby.hidden = true; canvas.hidden = false; renderer.resize(); input.setEnabled(true); canvas.focus(); };
+  const showMenuScreen = () => { input.setEnabled(false); canvas.hidden = true; lobby.hidden = false; };
+  const hideLobby = () => showGameScreen();
+  const showLobby = () => showMenuScreen();
 
   function newGame() {
     game = new Game({ teamSize, seed });

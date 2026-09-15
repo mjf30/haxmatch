@@ -22,6 +22,7 @@ class HumanInput {
     this.buttons = new Set();
     this.mouse = { x: 0, y: 0 };
     this.hooks = hooks || {};
+    this.enabled = false;        // só captura teclado/mouse na tela de jogo
     const gameKeys = new Set([
       'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
       'Space', 'ShiftLeft', 'ShiftRight', 'ControlLeft', 'ControlRight',
@@ -32,25 +33,26 @@ class HumanInput {
       return t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
     };
     window.addEventListener('keydown', (e) => {
-      if (typing(e)) return;                       // digitando no lobby: deixa o navegador cuidar
+      if (!this.enabled || typing(e)) return;      // menu ou campo de texto: o navegador cuida
       if (gameKeys.has(e.code)) e.preventDefault();
       if (e.repeat) return;
       this.keys.add(e.code);
       if (this.hooks.onKey) this.hooks.onKey(e.code);
     });
-    window.addEventListener('keyup', (e) => this.keys.delete(e.code));
+    window.addEventListener('keyup', (e) => { if (this.enabled) this.keys.delete(e.code); });
     window.addEventListener('blur', () => { this.keys.clear(); this.buttons.clear(); });
     canvas.addEventListener('mousemove', (e) => {
       const r = canvas.getBoundingClientRect();
       this.mouse.x = e.clientX - r.left;
       this.mouse.y = e.clientY - r.top;
     });
-    canvas.addEventListener('mousedown', (e) => { e.preventDefault(); this.buttons.add(e.button); });
+    canvas.addEventListener('mousedown', (e) => { if (!this.enabled) return; e.preventDefault(); this.buttons.add(e.button); });
     window.addEventListener('mouseup', (e) => this.buttons.delete(e.button));
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
   }
 
   down(code) { return this.keys.has(code); }
+  setEnabled(on) { this.enabled = on; this.keys.clear(); this.buttons.clear(); }
 
   sample(screenToWorld) {
     const i = emptyInput();
