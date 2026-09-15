@@ -1,21 +1,21 @@
 'use strict';
 // Todas as constantes de gameplay. Unidades: pixels de mundo e segundos.
 const CFG = {
-  FIELD_W: 1800, FIELD_H: 1000,     // área jogável entre as paredes
-  GOAL_W: 280, GOAL_D: 80,          // boca do gol e profundidade da rede
-  BOX_W: 330, BOX_H: 600,           // área do goleiro (onde pode usar as mãos)
-  PLAYER_R: 17, BALL_R: 9,
+  FIELD_W: 2000, FIELD_H: 1150,     // área jogável entre as paredes
+  GOAL_W: 300, GOAL_D: 80,          // boca do gol e profundidade da rede
+  BOX_W: 360, BOX_H: 640,           // área do goleiro (onde pode usar as mãos)
+  PLAYER_R: 15, BALL_R: 8,
   TEAM_SIZE: 4,                     // 3, 4 ou 5
   MATCH_TIME: 6 * 60,
   MERCY: 4,                         // diferença de gols que encerra
   DT: 1 / 60,
 
   // ---- movimento ----
-  SPEED: 165, SPRINT: 255, EXTRA_EFFORT: 1.22, ACCEL: 1200, DECEL: 1500,
-  SPEED_BALL: 135,                  // andando com a bola nos pés
-  SPRINT_BALL: 200,                 // correndo com a bola nos pés (gasta stamina)
+  SPEED: 135, SPRINT: 210, EXTRA_EFFORT: 1.22, ACCEL: 1000, DECEL: 1300,
+  SPEED_BALL: 110,                  // andando com a bola nos pés
+  SPRINT_BALL: 165,                 // correndo com a bola nos pés (gasta stamina)
   MUL_DRIBBLE: 0.7, MUL_DEF: 0.8, MUL_CHARGE: 0.55, MUL_RECOVER: 0.5,
-  KEEPER_HOLD_SPEED: 115,
+  KEEPER_HOLD_SPEED: 95,
 
   // ---- stamina ----
   STAMINA_MAX: 100, STAMINA_SPRINT: 12, STAMINA_REGEN: 9,
@@ -45,18 +45,18 @@ const CFG = {
   // ---- passe ----
   PASS_CHARGE: 0.4, PASS_MIN: 320, PASS_MAX: 620, PASS_ASSIST_DEG: 9,
   // ---- push ball ----
-  PUSH_SPEED: 360, PUSH_WALK_SPEED: 210,   // velocidade absoluta do toque à frente (correndo / andando)
+  PUSH_SPEED: 300, PUSH_WALK_SPEED: 175,   // velocidade absoluta do toque à frente (correndo / andando)
   // ---- tackle em pé ----
-  TACKLE_DUR: 0.28, TACKLE_SPEED: 320, TACKLE_REACH: 12, TACKLE_CD: 0.8,
+  TACKLE_DUR: 0.28, TACKLE_SPEED: 270, TACKLE_REACH: 12, TACKLE_CD: 0.8,
   TACKLE_MISS_RECOVER: 0.45, TACKLE_CHANCE: 0.85, TACKLE_CHANCE_DRIBBLE: 0.4,
   // ---- carrinho ----
-  SLIDE_DUR: 0.5, SLIDE_SPEED: 400, SLIDE_REACH: 14, SLIDE_CD: 1.5,
+  SLIDE_DUR: 0.5, SLIDE_SPEED: 340, SLIDE_REACH: 14, SLIDE_CD: 1.5,
   SLIDE_RECOVER: 0.6, SLIDE_MISS_RECOVER: 0.9, SLIDE_KNOCK: 380, FALL_DUR: 0.85,
   // ---- dash (postura defensiva) e drible (postura de drible) ----
   DASH_DUR: 0.16, DASH_MUL: 2.6, DASH_CD: 0.6,
   DRIBBLE_DUR: 0.2, DRIBBLE_MUL: 2.4, DRIBBLE_CD: 1.5,
   // ---- goleiro ----
-  GK_DIVE_DUR: 0.42, GK_DIVE_SPEED: 400, GK_DIVE_REACH: 10, GK_DIVE_RECOVER: 0.6, GK_DIVE_CD: 1.0,
+  GK_DIVE_DUR: 0.42, GK_DIVE_SPEED: 350, GK_DIVE_REACH: 10, GK_DIVE_RECOVER: 0.6, GK_DIVE_CD: 1.0,
   GK_PARRY_SPEED: 900, GK_HOLD_MAX: 5, GK_THROW: 560, GK_THROW_ASSIST_DEG: 20,
   GK_REPEL: 80, GK_REPEL_PUSH: 420,  // zona de repulsão com a bola nas mãos (raio além do corpo, px/s de empurrão)
 

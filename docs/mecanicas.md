@@ -127,8 +127,9 @@ frente após um push). Erro = recuperação com movimento reduzido.
 - Cobre muita distância; se erra custa muita stamina e tempo (fica caído).
 - Bom contra quem corre com a bola empurrada à frente.
 
-**2D:** deslize de ~0,5 s; bola tocada é chutada para longe; adversário atingido
-no corpo cai. Recuperação longa, mais longa e cara se errar.
+**2D:** deslize de ~0,5 s; bola tocada é chutada para longe; o adversário só cai
+se estiver com a bola dominada no pé (sem bola, o carrinho não derruba).
+Recuperação longa, mais longa e cara se errar.
 
 ### Dive / jump block de linha
 - No Rematch existe um pulo para bloquear bolas altas. Em 2D sem altura não faz

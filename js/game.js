@@ -432,7 +432,9 @@ class Game {
       }
     }
     for (const o of this.players) {
+      // só derruba o portador da bola (bola dominada no pé); sem bola o corpo só empurra
       if (!o.active || o.team === p.team || o.fallen > 0 || o.held || a.bodyHit.includes(o.id)) continue;
+      if (ball.owner !== o) continue;
       if (V.dist(p.pos, o.pos) >= p.r + o.r + 2) continue;
       a.bodyHit.push(o.id); a.body = true;
       o.fallen = CFG.FALL_DUR; o.action = null; o.charge = null;
