@@ -26,10 +26,13 @@ const WORKERS = parseInt(opt('workers', String(Math.max(1, os.cpus().length - 1)
 const SELFPLAY = flag('selfplay') || flag('league');
 const ATTACK = parseFloat(opt('attack', '0'));     // fração de partidas no cenário de ataque
 const BUILD = parseFloat(opt('build', '0'));       // fração no cenário de construção
+const CURRICULUM = parseInt(opt('curriculum', '0'), 10);   // gerações em que as frações caem linearmente até --attack_end/--build_end
+const ATTACK_END = parseFloat(opt('attack_end', '0'));
+const BUILD_END = parseFloat(opt('build_end', '0'));
 const LEAGUE_MAX = 6;
 const RESUME = opt('resume', null);
-const OUT = path.join(__dirname, '..', 'js', 'nn_weights.js');
-const LATEST = path.join(__dirname, 'latest.json');   // theta mais recente (retomar com --resume train/latest.json)
+const OUT = opt('out', path.join(__dirname, '..', 'js', 'nn_weights.js'));
+const LATEST = opt('latest', path.join(__dirname, 'latest.json'));   // theta mais recente (retomar com --resume train/latest.json)
 
 const sim = loadSim();
 const { NN, NNBot, MacroBot, Features } = sim;
@@ -103,7 +106,9 @@ let adamT = 0;
     // cenários: fração ATTACK no currículo de finalização
     const scenarios = [];
     // mistura FIXA por geração (evita gradiente ruidoso): nA de ataque, nB de construção, resto partida
-    const nA = Math.round(ATTACK * MATCHES), nB = Math.round(BUILD * MATCHES);
+    const cf = CURRICULUM > 0 ? Math.min(1, (gen - 1) / CURRICULUM) : 0;   // currículo: cenários sintéticos no começo, partidas no fim
+    const fA = ATTACK + (ATTACK_END - ATTACK) * cf, fB = BUILD + (BUILD_END - BUILD) * cf;
+    const nA = Math.round(fA * MATCHES), nB = Math.round(fB * MATCHES);
     for (let m = 0; m < MATCHES; m++) scenarios.push(m < nA ? 'attack' : (m < nA + nB ? 'build' : 'match'));
     const eps = [];
     const evals = [];
@@ -154,7 +159,7 @@ let adamT = 0;
       if (r.fitness > best) {
         best = r.fitness; bestW = theta.slice();
         save(bestW, `gen ${gen}, fitness vs script ${best.toFixed(2)}, gols ${gfe}:${gae}`);
-        console.log('   >> salvo em js/nn_weights.js');
+        console.log('   >> salvo em', path.relative(process.cwd(), OUT));
       }
     }
   }
