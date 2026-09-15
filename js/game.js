@@ -189,7 +189,8 @@ class Game {
     p.callT = Math.max(0, p.callT - dt);
     p.fakeT = Math.max(0, p.fakeT - dt);
     p.effortT = Math.max(0, p.effortT - dt);
-    p.effortBar = Math.min(1, p.effortBar + dt / CFG.EFFORT_RECHARGE);
+    // barra da arrancada recarrega mais rápido com a stamina cheia
+    p.effortBar = Math.min(1, p.effortBar + dt / (p.stamina >= CFG.STAMINA_MAX - 0.01 ? CFG.EFFORT_RECHARGE_FULL : CFG.EFFORT_RECHARGE));
     if (inp.call && !prev.call) { p.callT = 1.5; this.events.push({ type: 'call', p }); }
 
     // mira e direção de movimento

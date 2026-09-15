@@ -23,7 +23,7 @@ const CFG = {
   EXHAUST_RECOVER: 0.35,            // fração da barra para sair do estado exausto
   MUL_EXHAUSTED: 0.75,              // velocidade enquanto exausto
   COST_TACKLE: 5, COST_SLIDE: 14, COST_SLIDE_MISS: 12, COST_DASH: 6, COST_DRIBBLE: 10,
-  EFFORT_RECHARGE: 12, EFFORT_DUR: 0.8, DOUBLE_TAP: 0.3,
+  EFFORT_RECHARGE: 12, EFFORT_RECHARGE_FULL: 5, EFFORT_DUR: 0.8, DOUBLE_TAP: 0.3,   // recarga da arrancada (s): normal / com a stamina cheia
 
   // ---- bola ----
   BALL_DRAG: 0.7, BALL_DECEL: 35, BALL_BOUNCE: 0.72, BALL_MAX: 1300,
