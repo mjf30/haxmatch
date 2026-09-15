@@ -86,10 +86,15 @@ const mAdam = new Float32Array(N), vAdam = new Float32Array(N);
 let adamT = 0;
 
 (async () => {
-  let best = -Infinity, bestW = theta.slice();
   const base0 = theta.slice();   // versão inicial: referência fixa na avaliação e na liga
   const t0 = Date.now();
   const league = [base0];   // versões anteriores (self-play em liga)
+  const EVAL_SEEDS = [7, 21, 3, 11, 42, 99];
+  const evalOpps = SELFPLAY ? ['script', base0] : ['script'];
+  // avalia a versão inicial: só salva o que a superar
+  const r0 = await evaluate(base0, evalOpps, EVAL_SEEDS, ['match']);
+  let best = r0.fitness, bestW = theta.slice();
+  console.log(`avaliação da versão inicial: fitness ${best.toFixed(2)} · gols ${r0.ms.reduce((s, m) => s + m.gf, 0)}:${r0.ms.reduce((s, m) => s + m.ga, 0)}`);
   for (let gen = 1; gen <= GENS; gen++) {
     const gt = Date.now();
     // oponentes desta geração: sempre um script; em liga, o resto sorteado da liga
@@ -142,7 +147,7 @@ let adamT = 0;
     // avaliação do theta atual contra os bots script em sementes fixas
     if (gen % 5 === 0 || gen === GENS) {
       // sementes fixas: metade contra o script, metade contra a versão inicial
-      const r = await evaluate(theta, SELFPLAY ? ['script', base0] : ['script'], [7, 21, 3, 11, 42, 99], ['match']);
+      const r = await evaluate(theta, evalOpps, EVAL_SEEDS, ['match']);
       const gfe = r.ms.reduce((s, m) => s + m.gf, 0), gae = r.ms.reduce((s, m) => s + m.ga, 0);
       console.log(`   >> avaliação vs ${SELFPLAY ? 'script+inicial' : 'script'}: fitness ${r.fitness.toFixed(2)} · gols ${gfe}:${gae} em ${r.ms.length} partidas de ${SECONDS}s`);
       if (SELFPLAY) { league.push(theta.slice()); if (league.length > LEAGUE_MAX) league.splice(1, 1); }   // liga: inicial + versões recentes

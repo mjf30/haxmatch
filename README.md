@@ -112,6 +112,24 @@ node train/train.js --gens 200 --selfplay --resume js/nn_weights.js    # continu
 node train/eval.js 6 360                                               # rede x script, partidas completas
 ```
 
+**Arquitetura que funcionou: híbrida.** A IA programada foi separada em decisão
+tática (`AI.chooseMacro`: chutar, passar, conduzir, ir na bola, marcar, apoiar,
+recuar) e execução (`AI.execute`: movimento, mira, botões). A rede
+(`js/macrobot.js`, 118→64→7) escolhe só a decisão; a execução é a do script.
+Goleiros ficam no script.
+
+1. `node train/macro_clone.js --minutes 40 --epochs 6 --dagger 3` clona a
+   decisão do script (classificação) com DAgger. Só isso já vence o script
+   por ~10 x 0 em 6 partidas de 2 min (chuta muito mais e de primeira).
+2. `node train/train.js --policy macro --resume train/macro_clone.json --league --gens 80 --pop 24 --seconds 90 --matches 4 --sigma 0.02 --lr 0.01`
+   refina por ES em liga de self-play (script + versão inicial + versões
+   recentes), salvando só o que supera a versão inicial na avaliação fixa.
+
+A rede "crua" (`js/nnbot.js`, controlando movimento/mira/botões) também está
+implementada (`train/clone.js` para clonagem+DAgger, `train/train.js --policy raw`
+para ES com currículos `--attack/--build`), mas não chegou a jogar bem: o ES
+puro trava em "segurar a bola" e a clonagem bruta não reproduz o script.
+
 No lobby, "Bots: rede neural" usa os pesos treinados no lugar da IA programada.
 
 Veja `docs/mecanicas.md` para a pesquisa das mecânicas do Rematch e como cada
