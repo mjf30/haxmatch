@@ -2,7 +2,7 @@
 // Todas as constantes de gameplay. Unidades: pixels de mundo e segundos.
 const CFG = {
   FIELD_W: 2000, FIELD_H: 1150,     // área jogável entre as paredes
-  GOAL_W: 300, GOAL_D: 80,          // boca do gol e profundidade da rede
+  GOAL_W: 260, GOAL_D: 80,          // boca do gol e profundidade da rede
   BOX_W: 360, BOX_H: 640,           // área do goleiro (onde pode usar as mãos)
   PLAYER_R: 15, BALL_R: 8,
   TEAM_SIZE: 4,                     // 3, 4 ou 5
