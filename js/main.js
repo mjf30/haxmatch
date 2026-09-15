@@ -21,6 +21,10 @@
   let netEvents = [];
   let tick = 0, seq = 0;
   let withBots = true;              // host: vagas sem humano têm bot (true) ou ficam vazias (false)
+  let botKind = 'script';           // 'script' (IA programada) ou 'nn' (rede neural treinada)
+  const nnPolicy = (typeof NN_WEIGHTS !== 'undefined') ? NNBot.fromExport(NN_WEIGHTS) : null;
+  if (!nnPolicy) { const o = $('botKind').querySelector('option[value="nn"]'); if (o) { o.disabled = true; o.textContent = 'rede neural (sem pesos)'; } }
+  const botThink = (p, dt) => (botKind === 'nn' && nnPolicy ? NNBot.think(p, game, dt, nnPolicy) : AI.think(p, game, dt));
 
   // ---------- lobby ----------
   $('teamSize').value = String(teamSize);
@@ -53,6 +57,7 @@
 
   function startSolo() {
     mode = 'solo';
+    botKind = $('botKind').value;
     newGame();
     humanId = teamSize - 1;
     game.players[humanId].human = true;
@@ -64,6 +69,7 @@
     if (typeof Peer === 'undefined') { setStatus('PeerJS não carregou (sem internet?).', true); return; }
     mode = 'host';
     withBots = $('withBots').checked;
+    botKind = $('botKind').value;
     newGame();
     humanId = teamSize - 1;
     game.players[humanId].human = true;
@@ -289,7 +295,7 @@
       for (const p of game.players) {
         if (p === human) game.setInput(p.id, renderer.showScoreboard ? Object.assign(emptyInput(), { aim: human.input.aim }) : input.sample((sx, sy) => renderer.screenToWorld(sx, sy)));
         else if (p.human && mode === 'host') game.setInput(p.id, nextRemoteInput(p.id));
-        else game.setInput(p.id, AI.think(p, game, CFG.DT));
+        else game.setInput(p.id, botThink(p, CFG.DT));
       }
       game.step(CFG.DT);
       for (const e of game.events) onEvent(e);

@@ -88,5 +88,31 @@ o jogo ver a tecla. Aperte **Enter** para entrar em tela cheia: o jogo usa a
 Keyboard Lock API (Chrome/Edge) e passa a receber Ctrl+W, Ctrl+S, Tab etc.
 No Firefox isso não existe; use C em vez de Ctrl, ou as setas com o Ctrl direito.
 
+## Bots por rede neural
+
+Além dos bots programados (`js/ai.js`) existe um time controlado por uma rede
+neural (MLP em JS puro, sem dependências) treinada por neuroevolução contra a
+simulação headless:
+
+- `js/features.js`: observação de 109 valores por jogador, no referencial do
+  time (ataque sempre para +x): posição/velocidade próprias, stamina, exaustão,
+  arrancada, se é goleiro, se tem a bola, posturas, cooldowns; bola (posição e
+  velocidade relativas, dono, alvo disponível, prioridade); 4 companheiros e 5
+  adversários mais próximos (posição, velocidade, tem a bola, é goleiro); gols;
+  se cada time tem goleiro; placar; tempo; distância às paredes.
+- `js/nn.js` + `js/nnbot.js`: rede 109→64→64→12 (mover, mirar, chute, passe,
+  sprint, postura, especial, tackle, arremesso, pedir bola).
+- `train/train.js`: OpenAI-ES (amostragem antitética, ranks, Adam) com partidas
+  paralelas em `worker_threads`. Fitness = saldo de gols + posse + bola no campo
+  de ataque + finalizações + toques. Salva `js/nn_weights.js`.
+
+```
+node train/train.js --gens 200 --pop 32 --seconds 60 --matches 2      # vs bots script
+node train/train.js --gens 200 --selfplay --resume js/nn_weights.js    # continua, contra si mesma
+node train/eval.js 6 360                                               # rede x script, partidas completas
+```
+
+No lobby, "Bots: rede neural" usa os pesos treinados no lugar da IA programada.
+
 Veja `docs/mecanicas.md` para a pesquisa das mecânicas do Rematch e como cada
 uma foi adaptada.
