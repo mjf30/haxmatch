@@ -216,7 +216,10 @@ class Game {
     p.fakeT = Math.max(0, p.fakeT - dt);
     p.effortT = Math.max(0, p.effortT - dt);
     // barra da arrancada recarrega mais rápido com a stamina cheia
-    p.effortBar = Math.min(1, p.effortBar + dt / (p.stamina >= CFG.STAMINA_MAX - 0.01 ? CFG.EFFORT_RECHARGE_FULL : CFG.EFFORT_RECHARGE));
+    // barra da arrancada: durante o impulso escoa gradualmente (da metade até zero);
+    // fora dele recarrega, mais rápido com a stamina cheia
+    if (p.effortT > 0) p.effortBar = Math.max(0, p.effortBar - (0.5 / CFG.EFFORT_DUR) * dt);
+    else p.effortBar = Math.min(1, p.effortBar + dt / (p.stamina >= CFG.STAMINA_MAX - 0.01 ? CFG.EFFORT_RECHARGE_FULL : CFG.EFFORT_RECHARGE));
     p.dribbleLag = Math.max(0, p.dribbleLag - dt);
     if (p.dribbleChainT > 0) {
       p.dribbleChainT = Math.max(0, p.dribbleChainT - dt);
@@ -241,7 +244,7 @@ class Game {
     // sprint e extra effort (Shift duas vezes)
     if (inp.sprint && !prev.sprint) {
       if (this.now - p.lastSprintTap < CFG.DOUBLE_TAP && p.effortBar >= 1 && !held) {   // vale mesmo exausto
-        p.effortT = CFG.EFFORT_DUR; p.effortBar = 0;
+        p.effortT = CFG.EFFORT_DUR; p.effortBar = 0.5;   // cai metade na hora; o resto escoa durante o impulso
         this.events.push({ type: 'effort', p });
       }
       p.lastSprintTap = this.now;
