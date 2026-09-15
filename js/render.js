@@ -405,7 +405,7 @@ class Renderer {
         'WASD mover · mouse mira · Shift correr (2x = arrancada)',
         'LMB chute (segurar = força; mover o mouse = efeito) · RMB passe',
         'Espaço: push ball (com bola) / drible (Ctrl+bola) / dash (Ctrl sem bola) / mergulho do goleiro',
-        'E tackle · Shift+E carrinho · Ctrl (ou C) postura · F arremesso do goleiro',
+        'E tackle · Shift+E carrinho · Ctrl (ou C) postura · F arremesso do goleiro · botão do meio pede a bola',
         'Bola brilhando = zona de ação: LMB/RMB/Espaço agendam a ação, executada no toque · Shift 2x com bola = arrancada',
         'Tab placar/ping · Q troca jogador (solo) · R reinicia · H esconde esta ajuda',
         'Enter: tela cheia (bloqueia Ctrl+W e outros atalhos do navegador)',

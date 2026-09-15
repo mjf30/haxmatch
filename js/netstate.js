@@ -3,7 +3,7 @@
 // Só o que o render/HUD precisa; a simulação continua exclusiva do host.
 const NetState = (() => {
   const STANCES = ['none', 'drib', 'def'];
-  const FLASH_EVENTS = new Set(['steal', 'tackle-fail', 'knockdown', 'save', 'parry', 'effort', 'gloves', 'fake', 'goal', 'first-touch', 'block']);
+  const FLASH_EVENTS = new Set(['steal', 'tackle-fail', 'knockdown', 'save', 'parry', 'effort', 'gloves', 'fake', 'goal', 'first-touch', 'block', 'call']);
 
   // 1 casa decimal para posições/velocidades; 3 para vetores unitários (direções) e frações
   const r1 = (v) => (Math.abs(v) <= 1 ? Math.round(v * 1000) / 1000 : Math.round(v * 10) / 10);

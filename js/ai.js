@@ -123,6 +123,24 @@ const AI = (() => {
         inp.aim = shotTarget; inp.shoot = true;
         return inp;
       }
+      // pedido de bola (botão do meio): passa para a posição de quem pediu,
+      // ou dá um chutão na direção dele se estiver longe
+      const caller = mates.find((m) => m.callT > 0 && !(ai.lastCall && ai.t - ai.lastCall < 2.5));
+      if (caller) {
+        ai.lastCall = ai.t;
+        const target = V.add(caller.pos, V.mul(caller.vel, 0.3));
+        const dCall = V.dist(p.pos, target);
+        if (dCall < 750 && laneClear(ball.pos, target, opps, 22)) {
+          ai.mode = 'pass'; ai.aim = target;
+          ai.holdN = 2 + Math.floor(dCall / 250);
+          inp.aim = ai.aim; inp.pass = true;
+        } else {
+          ai.mode = 'shoot'; ai.modeT = ai.t; ai.aim = target;
+          ai.chargeT = V.clamp(dCall / 1500, 0.35, 1) * CFG.CHARGE_MAX;
+          inp.aim = ai.aim; inp.shoot = true;
+        }
+        return inp;
+      }
       // passar?
       if (dOpp < 120 || g.rng() < 0.004) {
         const cand = bestPass(g, p, mates, opps, dir, 100);
@@ -235,6 +253,23 @@ const AI = (() => {
         inp.aim = ai.aim;
         if (ai.useThrow) inp.throwBall = ai.holdN-- > 0; else inp.pass = ai.holdN-- > 0;
         if (ai.holdN < 0) ai.mode = 'none';
+        return inp;
+      }
+      const caller = mates.find((m) => m.callT > 0);
+      if (caller && ai.holdT > 0.3) {
+        const target = V.add(caller.pos, V.mul(caller.vel, 0.3));
+        const dCall = V.dist(p.pos, target);
+        if (dCall < 800 && laneClear(ball.pos, target, opps, 22)) {
+          ai.mode = 'pass'; ai.aim = target;
+          ai.useThrow = p.held && dCall > 320;
+          ai.holdN = ai.useThrow ? 1 : 2 + Math.floor(dCall / 300);
+          if (ai.useThrow) inp.throwBall = true; else inp.pass = true;
+        } else {
+          ai.mode = 'shoot'; ai.modeT = ai.t; ai.aim = target;
+          ai.chargeT = V.clamp(dCall / 1500, 0.4, 1) * CFG.CHARGE_MAX;
+          inp.shoot = true;
+        }
+        inp.aim = ai.aim;
         return inp;
       }
       if (ai.holdT > 0.7) {
