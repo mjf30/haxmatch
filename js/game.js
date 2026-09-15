@@ -365,10 +365,15 @@ class Game {
     if (p.exhausted && p.effortT <= 0) base *= CFG.MUL_EXHAUSTED;
     let desired = { x: inp.mx * base, y: inp.my * base };
     if (p.queued) {
-      // ação travada: "snap" em direção à bola na velocidade de sprint (nunca
-      // mais rápido do que correr sem bola)
+      // ação travada: "snap" em direção à bola, limitado à velocidade que o
+      // jogador teria agora sem bola (andar, ou sprint se está segurando Shift com
+      // stamina; exausto continua lento). Encadear toques nunca supera correr.
       const toBall = V.norm(V.sub(this.ball.pos, p.pos));
-      desired = V.mul(toBall, Math.max(base, Math.min(CFG.LOCK_SNAP_SPEED, CFG.SPRINT)));
+      let cap = p.sprinting ? CFG.SPRINT : CFG.SPEED;
+      if (p.effortT > 0) cap = CFG.SPRINT * CFG.EXTRA_EFFORT;
+      if (p.exhausted && p.effortT <= 0) cap *= CFG.MUL_EXHAUSTED;
+      if (p.recover > 0) cap *= CFG.MUL_RECOVER;
+      desired = V.mul(toBall, Math.min(CFG.LOCK_SNAP_SPEED, cap));
     }
     const diff = V.sub(desired, p.vel);
     const dl = V.len(diff);
