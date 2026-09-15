@@ -34,8 +34,8 @@ const CFG = {
   ACTION_ZONE_SPEED: 1.3,           // multiplicador de velocidade indo até a bola com ação agendada
   CONTROL_MAX: 600,                 // acima disso a bola rebate no corpo
   CONTROL_MAX_DEF: 850,            // postura defensiva domina bolas mais fortes
-  HITBOX_MUL: 0.7,                  // sem postura defensiva, o corpo "vale" 70% do raio para a bola
-  GRAB_MARGIN: 0, GRAB_MARGIN_DEF: 10,   // postura defensiva: alcance maior para dominar/bloquear
+  HITBOX_MUL: 1.0,                  // sem postura defensiva, a hitbox para a bola é só o corpo
+  GRAB_MARGIN: 0, GRAB_MARGIN_DEF: 14,   // postura defensiva: alcance bem maior para dominar/bloquear
   DEFLECT_BOUNCE: 0.4,
   KICK_COOLDOWN: 0.35, PUSH_COOLDOWN: 0.14, DEFLECT_COOLDOWN: 0.2,
 
