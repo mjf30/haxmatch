@@ -185,7 +185,7 @@ class Ctx:
         dOpp = self.min_opp_dist_to(pts)
         lane = self.lane_clear(self.bpos.unsqueeze(2).expand_as(pts), pts, self.opp.unsqueeze(2), 24).float()
         dMate = self.min_mate_dist_to(pts)
-        return dOpp.clamp(max=260) + 120 * lane + dMate.clamp(max=200) * 0.6
+        return dOpp.clamp(max=260) + 120 * lane + dMate.clamp(max=260) * 0.8 - torch.where(dMate < 120, 150.0, 0.0)
 
     def best_open_point(self, nominal, radius):
         """nominal [B,P,2], radius [B,P] -> [B,P,2]"""
@@ -204,15 +204,21 @@ class Ctx:
         py = self.pos[..., 1]
         side = torch.where(py >= a[..., 1], 1.0, -1.0)
         openfwd = torch.stack([a[..., 0] + dir_ * 280, a[..., 1] * 0.5 + side * 90], -1)
-        openwide = torch.stack([a[..., 0] + dir_ * 60, (a[..., 1] + side * 320).clamp(-H2 + 80, H2 - 80)], -1)
-        overlap = torch.stack([a[..., 0] + dir_ * 320, (a[..., 1] + side * 300).clamp(-H2 + 70, H2 - 70)], -1)
+        yQ = self.posQ[..., 1].expand(self.B, self.P, self.P)
+        edge, _, hasE = masked_max(yQ * side.unsqueeze(-1), self.oppNK)                # borda do bloco do lado 'side'
+        edge = torch.where(hasE, edge, torch.full_like(edge, -1e9))
+        yW = torch.maximum(a[..., 1] * side + 380, edge + 120) * side
+        yO = torch.maximum(a[..., 1] * side + 340, edge + 120) * side
+        openwide = torch.stack([a[..., 0] + dir_ * 60, yW.clamp(-H2 + 80, H2 - 80)], -1)
+        overlap = torch.stack([a[..., 0] + dir_ * 320, yO.clamp(-H2 + 70, H2 - 70)], -1)
         lastX, _, hasDef = masked_max(self.posQ[..., 0].expand(self.B, self.P, self.P) * self.dir3, self.oppNK)
         lastX = torch.where(hasDef, lastX, a[..., 0] * dir_ + 200)
         rx = dir_ * torch.minimum(lastX + 70, torch.full_like(lastX, W2 - CFG['BOX_W'] * 0.7))
         runspace = torch.stack([rx, (py * 0.7).clamp(-H2 * 0.6, H2 * 0.6)], -1)
         sy = torch.where(py >= 0, 1.0, -1.0)
         runbox = torch.stack([dir_ * (W2 - CFG['BOX_W'] * 0.55), (py * 0.6 + sy * 60).clamp(-CFG['BOX_H'] / 2 * 0.7, CFG['BOX_H'] / 2 * 0.7)], -1)
-        openback = torch.stack([a[..., 0] - dir_ * 240, a[..., 1] * 0.4 + side * 120], -1)
+        ownH = a[..., 0] * dir_ < 0
+        openback = torch.stack([a[..., 0] - dir_ * torch.where(ownH, 120.0, 240.0), a[..., 1] * 0.4 + side * torch.where(ownH, 200.0, 120.0)], -1)
         out = openback
         for code, val in ((M['openfwd'], openfwd), (M['openwide'], openwide), (M['overlap'], overlap), (M['runspace'], runspace), (M['runbox'], runbox)):
             out = torch.where((kind == code).unsqueeze(-1), val, out)
@@ -314,7 +320,7 @@ class Ctx:
         dp = (pts - self.pos.unsqueeze(2)).norm(dim=-1)
         da = (pts - self.anchor.unsqueeze(2)).norm(dim=-1)
         valid = (dp <= radius) & ~(self.teamHasKeeper.unsqueeze(-1) & self.in_box_team(pts)) & (da >= 120) & (da <= 800)
-        s = self.openness(pts) + 0.25 * (pts[..., 0] - self.anchor[..., 0].unsqueeze(-1)) * self.dir3 - 0.15 * dp
+        s = self.openness(pts) + 0.5 * (pts[..., 0] - self.anchor[..., 0].unsqueeze(-1)) * self.dir3 - 0.15 * dp
         _, idx, has = masked_max(s, valid)
         best = torch.gather(pts, 2, idx.view(B, P, 1, 1).expand(-1, -1, 1, 2)).squeeze(2)
         return torch.where(has.unsqueeze(-1), best, self.home_pos())
@@ -350,6 +356,8 @@ class ScriptAI:
         self.macro = torch.full((B, P), M['home'], dtype=torch.long, device=d)
         self.lastOwner = torch.full((B, P), -2, dtype=torch.long, device=d)
         self.reactUntil = f()
+        self.lastPush = f() - 9.0   # último empurrão na condução para o espaço (JS ai.lastPush)
+        self.gkPress = torch.zeros(B, P, dtype=torch.bool, device=d)   # histerese do gk_press (JS ai.gkPress)
         self.lastInp = None
         self.rng = lambda: sim.rand(B, P)
 
@@ -359,7 +367,7 @@ class ScriptAI:
     # ---------- estado ----------
     def snapshot(self):
         return dict(mode=self.mode.clone(), modeT=self.modeT.clone(), chargeT=self.chargeT.clone(), aim=self.aim.clone(),
-                    holdN=self.holdN.clone(), macro=self.macro.clone(), t=self.t.clone(),
+                    holdN=self.holdN.clone(), macro=self.macro.clone(), t=self.t.clone(), lastPush=self.lastPush.clone(), gkPress=self.gkPress.clone(),
                     lastInp=None if self.lastInp is None else {k: v.clone() for k, v in self.lastInp.items()})
 
     def restore(self, mask, snap):
@@ -367,7 +375,8 @@ class ScriptAI:
         self.mode = torch.where(mask, snap['mode'], self.mode); self.modeT = torch.where(mask, snap['modeT'], self.modeT)
         self.chargeT = torch.where(mask, snap['chargeT'], self.chargeT); self.aim = torch.where(m3, snap['aim'], self.aim)
         self.holdN = torch.where(mask, snap['holdN'], self.holdN); self.macro = torch.where(mask, snap['macro'], self.macro)
-        self.t = torch.where(mask, snap['t'], self.t)
+        self.t = torch.where(mask, snap['t'], self.t); self.lastPush = torch.where(mask, snap['lastPush'], self.lastPush)
+        self.gkPress = torch.where(mask, snap['gkPress'], self.gkPress)
         if snap['lastInp'] is not None and self.lastInp is not None:
             self.lastInp = {k: torch.where(m3 if v.dim() == 3 else mask, snap['lastInp'][k], v) for k, v in self.lastInp.items()}
 
@@ -393,13 +402,17 @@ class ScriptAI:
         keeperQ = C.keeper.view(B, 1, P).expand(B, P, P)
         gkX, _, hasGk = masked_max(C.posQ[..., 0].expand(B, P, P), C.opp & keeperQ)
         gkOut = torch.where(hasGk, (((gkX - C.oppGoal[..., 0]).abs() - 120) / 200).clamp(0, 1), torch.ones_like(gkX)) * torch.where(dGoal < 900, 0.3, 0.0)
-        shot = distF * (0.5 + 0.5 * angle) * torch.where(lane, 1.0, 0.35) + gkOut
-        opt(torch.ones_like(lane), torch.where((dGoal < 280) | (dOpp < 90), M['shootq'], M['shoot']), shot)
+        shot = (distF * (0.5 + 0.5 * angle) * torch.where(lane, 1.0, 0.35) + gkOut) * torch.where(C.hasBall | (dGoal < 300), 1.0, 0.3)
+        gkD, _, hasGkD = masked_min(C.dist, C.opp & keeperQ)
+        gkD = torch.where(hasGkD, gkD, torch.full_like(gkD, 9999.0))
+        quick = (dOpp < 90) | (gkD < 200) | ~C.hasBall
+        opt(torch.ones_like(lane), torch.where(quick, M['shootq'], M['shoot']), shot)
         # ---- passes ----
         cnt, _, _ = self._pc(sim)
         nAct = sim.active_mask().sum(-1, keepdim=True).float()
         cells = float(FT_GX * FT_GY)
         shareQ = ((cnt.float() / (cells / nAct)).clamp(0, 2) / 2)                # [B,q] fatia média = 0.5
+        owner_grid = self._pc_owner(sim)                                          # [B,GX*GY] dono de cada célula
         def pass_value(tgt, recv):
             prog = (((tgt[..., 0] - C.pos[..., 0]) * C.dir) / 500).clamp(-0.5, 1)
             dOppT = C.min_opp_dist_to(tgt.unsqueeze(2)).squeeze(2)
@@ -411,27 +424,29 @@ class ScriptAI:
             mn, _, _ = masked_min(sd, C.opp & far)
             margin = ((mn - 30) / 80).clamp(0, 1)
             share = gather1(shareQ, recv)
-            v = 0.35 * prog + 0.3 * space + 0.2 * margin + 0.15 * share
+            v = 0.5 * prog + 0.3 * space + 0.2 * margin + 0.15 * share
+            v = v + 0.1 * self._voronoi_ours(C, tgt, owner_grid)
             v = torch.where((tgt[..., 0] * C.dir < -W2 * 0.5) & (dOppT < 200), v - 0.3, v)
             return v
         thrHas, thrLead, thrD = C.through_target()
         _, _, _ = thrHas, thrLead, thrD
         # índice do companheiro da enfiada (para a fatia): recomputa o argmax como em through_target
-        opt(thrHas, M['through'], pass_value(thrLead, self._through_idx(C)) + 0.1 - torch.where(thrD > 700, 0.15, 0.0))
+        opt(thrHas, M['through'], pass_value(thrLead, self._through_idx(C)) + 0.15 - torch.where(thrD > 800, 0.1, 0.0))
         lpHas, lpIdx = C.long_pass_target()
-        opt(lpHas, M['longpass'], pass_value(gather2(sim.pos, lpIdx) + gather2(sim.vel, lpIdx) * 0.6, lpIdx) - 0.1)
+        opt(lpHas, M['longpass'], pass_value(gather2(sim.pos, lpIdx) + gather2(sim.vel, lpIdx) * 0.6, lpIdx) - 0.03)
         swHas, swIdx = C.switch_target()
         crowded = torch.where((C.opp & (C.dist < 260)).sum(-1) >= 2, 0.15, 0.0)
         opt(swHas, M['switch'], pass_value(gather2(sim.pos, swIdx), swIdx) + crowded)
         bpHas, bpIdx = C.best_pass(100)
         opt(bpHas, M['pass'], pass_value(gather2(sim.pos, bpIdx) + gather2(sim.vel, bpIdx) * 0.3, bpIdx))
         spHas, spIdx = C.safe_pass_target()
-        opt(spHas, M['passback'], pass_value(gather2(sim.pos, spIdx), spIdx) + 0.25 * pressure)
+        opt(spHas, M['passback'], pass_value(gather2(sim.pos, spIdx), spIdx) - 0.2 + 0.4 * (pressure - 0.3).clamp(min=0))
         # ---- conduzir / proteger / dominar ----
         sd_, free = C.space_dir()
-        carry = (free / 500).clamp(0, 1) * 0.45 * (1 - pressure) * torch.where(C.keeper, 0.3, 1.0) + torch.where(dGoal < 900, 0.1, 0.0)
-        opt(C.hasBall, torch.where((free > 450) & (dOpp > 200), M['carryspace'], M['dribble']), carry)
-        opt(C.hasBall, M['hold'], 0.15 + 0.35 * pressure * (dOpp < 90).float())
+        ownHalf = torch.where(C.pos[..., 0] * C.dir < 0, 0.12, 0.0)
+        carry = (free / 500).clamp(0, 1) * 0.55 * (1 - pressure) * torch.where(C.keeper, 0.3, 1.0) + torch.where(dGoal < 900, 0.1, 0.0) + ownHalf
+        opt(C.hasBall, torch.where((free > 380) & (dOpp > 150), M['carryspace'], M['dribble']), carry)
+        opt(C.hasBall, M['hold'], 0.1 + 0.35 * pressure * (dOpp < 70).float())
         opt(~C.hasBall, M['chase'], torch.full((B, P), 0.3, device=C.d))
         S = torch.stack(scores, -1); Mm = torch.stack(macros, -1)
         best = S.argmax(dim=-1)
@@ -444,6 +459,25 @@ class ScriptAI:
     def _pc(self, sim):
         import features_torch as FT
         return FT.pitch_control(sim)
+
+    def _pc_owner(self, sim):
+        """dono (índice do jogador) de cada célula da grade de controle de campo [B, GX*GY], como Features.pitchControl"""
+        B, P = sim.B, sim.P
+        xs = torch.tensor([-W2 + (i + 0.5) * CFG['FIELD_W'] / FT_GX for i in range(FT_GX)], device=sim.dev)
+        ys = torch.tensor([-H2 + (j + 0.5) * CFG['FIELD_H'] / FT_GY for j in range(FT_GY)], device=sim.dev)
+        pts = torch.stack(torch.meshgrid(xs, ys, indexing='ij'), -1).reshape(1, FT_GX * FT_GY, 1, 2)   # ordem i-major: idx = i*GY + j
+        d2 = ((pts - sim.pos.view(B, 1, P, 2)) ** 2).sum(-1)                                        # [B,cells,P]
+        d2 = torch.where(sim.active_mask().view(B, 1, P), d2, torch.full_like(d2, BIG))
+        return d2.argmin(dim=-1)                                                                   # [B,cells]
+
+    def _voronoi_ours(self, C, pt, owner_grid):
+        """1 se a célula do ponto é de um companheiro (ou minha), 0 se do adversário"""
+        B, P = C.B, C.P
+        i = ((pt[..., 0] + W2) / (CFG['FIELD_W'] / FT_GX)).floor().long().clamp(0, FT_GX - 1)
+        j = ((pt[..., 1] + H2) / (CFG['FIELD_H'] / FT_GY)).floor().long().clamp(0, FT_GY - 1)
+        cell = i * FT_GY + j
+        own = torch.gather(owner_grid, 1, cell)                                                    # [B,P] índice do dono
+        return (C.sim.team[own] == C.team).float()
 
     def _through_idx(self, C):
         """índice do companheiro escolhido pela enfiada (mesmo critério de through_target)"""
@@ -483,7 +517,9 @@ class ScriptAI:
         # largura por lado
         wideIdx, wideHas = [], []
         for side in (1.0, -1.0):
-            openS = (fieldQ & ((yQ - yC) * side > 250) & ~(assigned & (supRole.unsqueeze(-1) == M['openback']))).any(-1)
+            edgeS, _, hasES = masked_max(yQ * side, C.oppNK)
+            edgeS = torch.where(hasES, edgeS, torch.full_like(edgeS, -1e9))
+            openS = (fieldQ & (((yQ - yC) * side > 250) | (yQ * side > (edgeS + 40).unsqueeze(-1))) & ~(assigned & (supRole.unsqueeze(-1) == M['openback']))).any(-1)
             cand = fieldQ & ~assigned & ((yQ - yC) * side >= 0)
             _, wIdx, wHas = masked_max(yQ * side, cand)
             wHas = wHas & ~openS
@@ -493,12 +529,22 @@ class ScriptAI:
         _, advIdx, advHas = masked_max(xQ, fieldQ & ~assigned)
         lastX, _, hasDef = masked_max(xQ, C.oppNK)
         lastX = torch.where(hasDef, lastX, torch.full_like(lastX, W2))
-        advRole = torch.where(attacking, M['runbox'], torch.where(lastX - C.ownerPos[..., 0] * C.dir > 150, M['runspace'], M['openfwd']))
+        advRole = torch.where(attacking, M['runbox'], torch.where(lastX - C.ownerPos[..., 0] * C.dir > 100, M['runspace'], M['openfwd']))
+        freeM = fieldQ & ~assigned
+        nFree = freeM.sum(-1)
+        xQ2 = torch.where(freeM & ~(C.pidx.unsqueeze(1).expand(B, P, P) == advIdx.unsqueeze(-1)), xQ, torch.full_like(xQ, -BIG))
+        _, adv2Idx, adv2Has = masked_max(xQ2, xQ2 > -BIG / 2)
+        adv2Has = adv2Has & (nFree >= 3)
+        adv2Role = torch.where(attacking, M['runbox'], M['runspace'])
         sameOwner = torch.full((B, P), M['openbest'], dtype=torch.long, device=C.d)
+        sameOwner = torch.where(adv2Has & (adv2Idx == C.pidx), adv2Role, sameOwner)
         sameOwner = torch.where(advHas & (advIdx == C.pidx), advRole, sameOwner)
         for wIdx, wHas in zip(wideIdx, wideHas):
             sameOwner = torch.where(wHas & (wIdx == C.pidx), torch.full_like(sameOwner, M['openwide']), sameOwner)
         sameOwner = torch.where(supHas & (supIdx == C.pidx), supRole, sameOwner)
+        # aglomeração: companheiro (não portador) a menos de 110 px e não sou o apoio -> abrir no ponto mais livre
+        mateClose = (C.same & ~(C.pidx.unsqueeze(1).expand(B, P, P) == C.owner.unsqueeze(-1)) & (C.dist < 110)).any(-1)
+        sameOwner = torch.where(mateClose & (sameOwner != M['openback']), torch.full_like(sameOwner, M['openbest']), sameOwner)
         # adversário com a bola: pressiona / corta linha perigosa / último homem cobre / compacta
         dPc = (C.pos - C.ownerPos).norm(dim=-1)
         orderD = (C.matesNK & (dQc <= dPc.unsqueeze(-1))).sum(-1)   # <=: no JS o sort estável põe os companheiros antes de mim em empates
@@ -533,7 +579,7 @@ class ScriptAI:
         dBallGoal = (C.bpos - C.ownGoal).norm(dim=-1)
         rush1 = loose & inBox & ((myD < oppD - 10) | (myD < 90))
         rush2 = C.ownerOpp & inBox & (myD < 160)
-        press = C.ownerOpp & (dBallGoal < 520) & (rng() < 0.6)
+        press = C.ownerOpp & (dBallGoal < torch.where(self.gkPress, 560.0, 480.0))
         up = (C.bpos[..., 0] * C.dir > W2 * 0.35) & (loose | C.ownerSame)
         towardMe = loose & (C.bvel[..., 0] * C.dir < 0) & (C.bvel.norm(dim=-1) > 400)
         line = towardMe & (dBallGoal < 500)
@@ -542,6 +588,7 @@ class ScriptAI:
         res = torch.where(up, M['gk_up'], res)
         res = torch.where(press, M['gk_press'], res)
         res = torch.where(rush1 | rush2, M['gk_rush'], res)
+        self.gkPress = torch.where(C.keeper & ~C.hasBall & ~(rush1 | rush2), press, self.gkPress)
         carrier = self.choose_carrier(C)
         return torch.where(C.hasBall, carrier, res)
 
@@ -638,16 +685,16 @@ class ScriptAI:
             self.mode = torch.where(ok, MODE_PASS, self.mode)
             self.aim = torch.where(ok.unsqueeze(-1), tp + tv * 0.3, self.aim)
             self.holdN = torch.where(ok, 2 + torch.floor((tp - C.pos).norm(dim=-1) / 250).long(), self.holdN)
-        # de primeira sem alvo válido: vai na bola (chase); quem já 'retornou' (segurando chute/passe) não cai aqui
-        early = (isin(mc, [M['longpass'], M['through']]) & (self.mode == MODE_SHOOT)) | (isin(mc, [M['switch'], M['passback']]) & (self.mode == MODE_PASS))
-        needChase = carrier & ~C.hasBall & ~early
-        self.mode = torch.where(needChase, MODE_NONE, self.mode)
-        # shoot / shootq: configura o modo
-        m = carrier & C.hasBall & isin(mc, [M['shoot'], M['shootq']]) & (self.mode != MODE_SHOOT)
+        # shoot / shootq: configura o modo (também de primeira: trava o chute no alvo)
+        m = carrier & isin(mc, [M['shoot'], M['shootq']]) & (self.mode != MODE_SHOOT)
         if m.any():
             self.mode = torch.where(m, MODE_SHOOT, self.mode); self.modeT = torch.where(m, self.t, self.modeT)
             self.aim = torch.where(m.unsqueeze(-1), C.shot_target(), self.aim)
-            self.chargeT = torch.where(m, torch.where(mc == M['shootq'], 0.3, (0.5 + C.dGoalP / 600).clamp(0.6, 1.0)) * CFG['CHARGE_MAX'], self.chargeT)
+            self.chargeT = torch.where(m, torch.where(mc == M['shootq'], 0.4, (0.5 + C.dGoalP / 600).clamp(0.6, 1.0)) * CFG['CHARGE_MAX'], self.chargeT)
+        # de primeira sem alvo válido: vai na bola (chase); quem já 'retornou' (segurando chute/passe) não cai aqui
+        early = (isin(mc, [M['longpass'], M['through'], M['shoot'], M['shootq']]) & (self.mode == MODE_SHOOT)) | (isin(mc, [M['switch'], M['passback']]) & (self.mode == MODE_PASS))
+        needChase = carrier & ~C.hasBall & ~early
+        self.mode = torch.where(needChase, MODE_NONE, self.mode)
         # pass: configura o modo (sem pedido de bola no sim vetorizado)
         m = carrier & C.hasBall & (mc == M['pass']) & (self.mode != MODE_PASS)
         if m.any():
@@ -664,9 +711,9 @@ class ScriptAI:
         self._shoot_hold(out, carrier & isin(mc, [M['longpass'], M['through']]) & (self.mode == MODE_SHOOT), C)
         self._pass_hold(out, ((carrier & isin(mc, [M['switch'], M['passback']])) | (withBall & (mc == M['pass']))) & (self.mode == MODE_PASS), C)
         # shoot: segurar + andar para o gol
-        ms = withBall & isin(mc, [M['shoot'], M['shootq']])
+        ms = carrier & isin(mc, [M['shoot'], M['shootq']]) & (self.mode == MODE_SHOOT)
         if ms.any():
-            self._move_to(out, ms, C, C.oppGoal, torch.zeros_like(ms))
+            self._move_to(out, ms & C.hasBall, C, C.oppGoal, torch.zeros_like(ms))
             self._shoot_hold(out, ms, C)
         # carryspace
         mcs = withBall & (mc == M['carryspace'])
@@ -675,7 +722,9 @@ class ScriptAI:
             out['mx'] = torch.where(mcs, sd[..., 0], out['mx']); out['my'] = torch.where(mcs, sd[..., 1], out['my'])
             out['aim'] = torch.where(mcs.unsqueeze(-1), C.pos + sd * 150, out['aim'])
             out['sprint'] = torch.where(mcs, (sim.stamina > 8) & (free > 200), out['sprint'])
-            out['special'] = torch.where(mcs, (sim.cd['grab'] <= 0) & (free > 300), out['special'])
+            pushOk = mcs & (sim.cd['grab'] <= 0) & (free > 350) & (sim.vel.norm(dim=-1) > 100) & (self.t - self.lastPush > 0.6)
+            out['special'] = torch.where(mcs, pushOk, out['special'])
+            self.lastPush = torch.where(pushOk, self.t, self.lastPush)
         # hold
         mh = withBall & (mc == M['hold'])
         if mh.any():
