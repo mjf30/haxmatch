@@ -790,5 +790,5 @@ const AI = (() => {
     return inp;
   }
 
-  return { think, MACROS, chooseMacro, context, execute };
+  return { think, MACROS, chooseMacro, context, execute, keeperExecute };
 })();

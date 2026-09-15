@@ -113,7 +113,8 @@ class TorchSim:
                     aim=torch.zeros(B, P, 2, device=d), curve=torch.zeros(B, P, device=d),
                     shoot=torch.zeros(B, P, dtype=torch.bool, device=d), pas=torch.zeros(B, P, dtype=torch.bool, device=d),
                     sprint=torch.zeros(B, P, dtype=torch.bool, device=d), stance=torch.zeros(B, P, dtype=torch.bool, device=d),
-                    special=torch.zeros(B, P, dtype=torch.bool, device=d), tackle=torch.zeros(B, P, dtype=torch.bool, device=d))
+                    special=torch.zeros(B, P, dtype=torch.bool, device=d), tackle=torch.zeros(B, P, dtype=torch.bool, device=d),
+                    throw=torch.zeros(B, P, dtype=torch.bool, device=d))
 
     def rand(self, *shape):
         return torch.rand(*shape, generator=self.gen, device=self.dev)
@@ -202,7 +203,9 @@ class TorchSim:
         fz = frozen.view(B, 1).expand(B, P)
         # inputs congelados = vazios
         z = self._empty_input()
+        inp = {**z, **inp}   # chaves ausentes (ex.: throw) ficam vazias
         cur = {k: torch.where(fz if v.dim() == 2 else fz.unsqueeze(-1), z[k], v) for k, v in inp.items()}
+        self._last_inp = cur   # input deste tick (direção do toque de primeira, como p.input no JS)
         prev = self.prev
 
         self._update_players(cur, prev, fz)
@@ -414,6 +417,11 @@ class TorchSim:
         self.dribbleLag = torch.where(ns2 | np2, 0.0, self.dribbleLag)
         okc = okc & ~(ns2 | np2)
 
+        # ---- arremesso do goleiro (bola na mão) ----
+        thr = okc & canKick & self.held & pressed('throw')
+        self._throw(thr, inp)
+        okc = okc & ~thr
+
         # ---- Espaço com a bola ----
         heldNow = canKick & self.held
         sp = okc & canKick & pressed('special')
@@ -527,6 +535,32 @@ class TorchSim:
         vel = direction * speed.unsqueeze(-1) + self.vel * 0.1
         self._release_ball(mask, vel, torch.zeros_like(speed), CFG['KICK_COOLDOWN'])
         self.events['pass'] = self.events.get('pass', torch.zeros_like(mask)) | mask
+
+    def _throw(self, mask, inp):
+        """arremesso do goleiro: assistência larga (GK_THROW_ASSIST_DEG), força pela distância até GK_THROW"""
+        if not mask.any():
+            return
+        B, P, d = self.B, self.P, self.dev
+        direction = self._kick_dir(inp)
+        speed = torch.full((B, P), float(CFG['GK_THROW']), device=d)
+        rel = self.pos.view(B, 1, P, 2) - self.bpos.view(B, 1, 1, 2)
+        dist = rel.norm(dim=-1)
+        cosang = (rel * direction.view(B, P, 1, 2)).sum(-1) / dist.clamp(min=1e-6)
+        same = (self.team.view(1, P, 1) == self.team.view(1, 1, P)) & ~torch.eye(P, dtype=torch.bool, device=d).view(1, P, P)
+        okm = same & (dist >= 60) & (cosang > math.cos(math.radians(CFG['GK_THROW_ASSIST_DEG'])))
+        score = torch.where(okm, cosang, torch.full_like(cosang, -2.0))
+        best = score.argmax(dim=-1)
+        has = score.max(dim=-1).values > -1.5
+        tgt = torch.gather(self.pos, 1, best.unsqueeze(-1).expand(B, P, 2)) + 0.35 * torch.gather(self.vel, 1, best.unsqueeze(-1).expand(B, P, 2))
+        toT = tgt - self.bpos.view(B, 1, 2)
+        dT = toT.norm(dim=-1)
+        dirA = toT / dT.clamp(min=1e-6).unsqueeze(-1)
+        spA = self._speed_for_distance(dT + 40).clamp(400.0, CFG['GK_THROW'])
+        direction = torch.where(has.unsqueeze(-1), dirA, direction)
+        speed = torch.where(has, spA, speed)
+        vel = direction * speed.unsqueeze(-1) + self.vel * 0.1
+        self._release_ball(mask, vel, torch.zeros_like(speed), CFG['KICK_COOLDOWN'])
+        self.events['throw'] = self.events.get('throw', torch.zeros_like(mask)) | mask
 
     @staticmethod
     def _speed_for_distance(dist):
