@@ -99,7 +99,9 @@ def main():
     it0 = 0
     if args.resume and os.path.exists(args.resume):
         ck = torch.load(args.resume, map_location=dev)
-        pol.load_state_dict(ck['pol']); opt.load_state_dict(ck['opt']); it0 = ck.get('it', 0)
+        pol.load_state_dict(ck['pol'])
+        if 'opt' in ck: opt.load_state_dict(ck['opt'])
+        it0 = ck.get('it', 0)
         print('retomando de', args.resume, 'iteração', it0)
     league = []                                   # políticas congeladas (state_dicts)
     # quais partidas usam oponente da liga no time 1 (essas amostras do time 1 não treinam)
@@ -114,6 +116,8 @@ def main():
     prevScore = sim.score.clone()
     passTick = torch.full((B,), -1e9, device=dev); passer = torch.zeros(B, dtype=torch.long, device=dev); tick = 0
     prevDist = (sim.pos - sim.bpos.view(B, 1, 2)).norm(dim=-1)   # para o shaping de aproximação
+    possStreak = torch.zeros(B, device=dev)                    # ticks seguidos com a bola no mesmo time
+    lastKickTeam = torch.full((B,), -1, dtype=torch.long, device=dev); lastKickTick = torch.full((B,), -1e9, device=dev)
     W2 = CFG['FIELD_W'] / 2
     obs = FT.build(sim)
     t0 = time.time()
@@ -161,6 +165,14 @@ def main():
                 ycross = bp[:, 1].view(B, 1) + bv[:, 1].view(B, 1) * tcross
                 onT = ev['shot'] & (vx > 100) & (tcross > 0) & (ycross.abs() < CFG['GOAL_W'] / 2)
                 rew += 0.08 * onT.float()
+                # defesa: chute adversário na direção do gol foi permitido -> penalidade coletiva do time que defende
+                onTb = onT.any(dim=1)
+                shooterTeam = torch.where(onTb, sim.team[onT.float().argmax(dim=1)], torch.full_like(sim.lastTeam, -1))
+                rew -= 0.04 * ((shooterTeam.view(B, 1) >= 0) & (sim.team.view(1, P) != shooterTeam.view(B, 1))).float()
+                # registra o time do último chute/passe (para interceptações)
+                kb = ev['shot'].any(dim=1)
+                lastKickTeam = torch.where(kb, sim.team[ev['shot'].float().argmax(dim=1)], lastKickTeam)
+                lastKickTick = torch.where(kb, torch.full_like(lastKickTick, float(tick)), lastKickTick)
             # aproximação da bola: só o companheiro mais próximo de cada time é recompensado por se aproximar
             dist = (sim.pos - sim.bpos.view(B, 1, 2)).norm(dim=-1)
             closest = torch.zeros(B, P, dtype=torch.bool, device=dev)
@@ -173,9 +185,18 @@ def main():
             prevDist = dist
             if args.sanity: rew = ((prevDist - dist) / 100).clamp(-0.05, 0.05) * 0 + (-dist / 1000) * 0.01
             if args.sanity2: rew = (a[..., 0] == 1).float() * 0.1   # recompensa por escolher mover na direção 1
-            if 'control' in ev: rew += 0.01 * ev['control'].float()
+            if 'control' in ev:
+                rew += 0.01 * ev['control'].float()
+                # interceptação: dominar até 2 s após chute/passe do adversário
+                recentK = (tick - lastKickTick) < 2.0 / DT
+                inter = ev['control'] & recentK.view(B, 1) & (lastKickTeam.view(B, 1) >= 0) & (sim.team.view(1, P) != lastKickTeam.view(B, 1))
+                rew += 0.08 * inter.float()
             if 'first' in ev: rew += 0.01 * ev['first'].float()
-            if 'pass' in ev: rew += 0.01 * ev['pass'].float()
+            if 'pass' in ev:
+                rew += 0.01 * ev['pass'].float()
+                kb = ev['pass'].any(dim=1)
+                lastKickTeam = torch.where(kb, sim.team[ev['pass'].float().argmax(dim=1)], lastKickTeam)
+                lastKickTick = torch.where(kb, torch.full_like(lastKickTick, float(tick)), lastKickTick)
             # passe completado: companheiro (outro jogador) domina até 2,5 s depois -> passador e receptor
             tick += 1
             if 'pass' in ev and ev['pass'].any():
@@ -189,17 +210,36 @@ def main():
                 notSelf = torch.arange(P, device=dev).view(1, P) != passer.view(B, 1)
                 done_pass = ctrl & recent.view(B, 1) & sameTeam & notSelf
                 if done_pass.any():
-                    rew += 0.06 * done_pass.float()
-                    rew[torch.arange(B, device=dev)[done_pass.any(dim=1)], passer[done_pass.any(dim=1)]] += 0.06
+                    # passe completado: 0,15 para receptor e passador; +0,05 se avançou a bola
+                    fwd = ((sim.pos[..., 0] - sim.pos[torch.arange(B, device=dev), passer][:, 0].view(B, 1)) * sim.dir.view(1, P) > 150).float()
+                    rew += (0.15 + 0.05 * fwd) * done_pass.float()
+                    rew[torch.arange(B, device=dev)[done_pass.any(dim=1)], passer[done_pass.any(dim=1)]] += 0.15
                     stat['passOk'] += float(done_pass.sum())
                     passTick = torch.where(done_pass.any(dim=1), torch.full_like(passTick, -1e9), passTick)
-            if 'steal' in ev: rew += 0.03 * ev['steal'].float()
-            if 'save' in ev: rew += 0.05 * ev['save'].float()
+            if 'steal' in ev: rew += 0.10 * ev['steal'].float()
+            if 'save' in ev: rew += 0.10 * ev['save'].float()
             # posse: pequeno bônus por tick para o time com a bola (compartilhado)
             has = sim.owner >= 0
             oteam = torch.where(has, sim.team[sim.owner.clamp(min=0)], torch.full_like(sim.owner, -1))
             poss = (oteam.view(B, 1) == sim.team.view(1, P)).float()
-            rew += 0.0005 * poss
+            rew += 0.002 * poss
+            # enrolar: mesmo time com a bola por mais de 4 s seguidos -> penalidade crescente
+            possStreak = torch.where(has, possStreak + 1, torch.zeros_like(possStreak))
+            stall = (possStreak > 4 / DT).float().view(B, 1) * poss
+            rew -= 0.003 * stall
+            # com a bola: espaçamento entre companheiros de linha (média das distâncias, cap 500) e aglomeração
+            fieldm = (~sim.isKeeper).float()
+            dpp = (sim.pos.view(B, P, 1, 2) - sim.pos.view(B, 1, P, 2)).norm(dim=-1).clamp(max=500)
+            sameT = (sim.team.view(1, P, 1) == sim.team.view(1, 1, P)) & ~torch.eye(P, dtype=torch.bool, device=dev).view(1, P, P)
+            wgt = sameT.float() * fieldm.view(B, 1, P)
+            spread = (dpp * wgt).sum(-1) / wgt.sum(-1).clamp(min=1) / 500
+            rew += 0.002 * spread * poss * fieldm
+            near = ((sim.pos - sim.bpos.view(B, 1, 2)).norm(dim=-1) < 150).float() * fieldm
+            crowd = torch.zeros(B, P, device=dev)
+            for tteam in (0, 1):
+                tm = (sim.team == tteam).view(1, P).float()
+                crowd += ((near * tm).sum(dim=1, keepdim=True) >= 3).float() * tm
+            rew -= 0.004 * crowd * poss
             # partida terminou (tempo) -> episódio acaba; reinicia essas partidas
             done = (sim.state == 3)
             if done.any():

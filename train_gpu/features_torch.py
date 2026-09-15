@@ -5,7 +5,7 @@ import torch
 from sim_torch import CFG, ACT_NONE, ST_DRIB, ST_DEF, CH_SHOT, Q_NONE
 
 MAX_MATES, MAX_OPPS = 4, 5
-SELF, BALL, MATE, OPP, GOALS, MISC = 33, 12, 8, 8, 6, 12
+SELF, BALL, MATE, OPP, GOALS, MISC = 33, 12, 11, 10, 6, 12
 SIZE = SELF + BALL + MAX_MATES * MATE + MAX_OPPS * OPP + GOALS + MISC   # 135
 GX, GY = 12, 7
 
@@ -98,7 +98,31 @@ def build(sim):
     qK = sim.isKeeper.float().view(B, 1, P)
     qShare = (count / ncell * 4).view(B, 1, P)
 
-    def group(mask, nmax):
+    # por jogador q: distância ao adversário mais próximo DELE, adversários a <200 dele, distância à bola
+    oppOfQ = (team.view(1, P, 1) != team.view(1, 1, P))                       # [1,q,o]
+    dqo = torch.where(oppOfQ.expand(B, -1, -1), dq, torch.full_like(dq, 1000.0))
+    qNearOpp = (dqo.min(dim=-1).values / 400).clamp(max=1)                    # [B,q]
+    qOppsNear = ((dqo < 200).sum(-1).float() / 5)                              # [B,q]
+    qBallD = ((sim.pos - sim.bpos.view(B, 1, 2)).norm(dim=-1) * DIST).clamp(max=1)   # [B,q]
+    # linha de passe da bola até q livre (nenhum adversário de q a menos de r+26 da linha, fora as pontas)
+    def seg_dist_pts(pt, a, bb):   # pt [B,1,P,2] (obstáculos), a [B,1,1,2], bb [B,P,1,2] -> [B,P,P]
+        ab = bb - a
+        t = ((pt - a) * ab).sum(-1) / (ab * ab).sum(-1).clamp(min=1e-9)
+        t = t.clamp(0, 1)
+        proj = a + ab * t.unsqueeze(-1)
+        return (pt - proj).norm(dim=-1)
+    bpt = sim.bpos.view(B, 1, 1, 2)
+    sd = seg_dist_pts(sim.pos.view(B, 1, P, 2), bpt, sim.pos.view(B, P, 1, 2))   # [B,q,o]
+    dOA = (sim.pos.view(B, 1, P, 2) - bpt).norm(dim=-1)                          # [B,1,o] obstáculo -> bola
+    dOB = (sim.pos.view(B, 1, P, 2) - sim.pos.view(B, P, 1, 2)).norm(dim=-1)     # [B,q,o] obstáculo -> q
+    blocks = oppOfQ.expand(B, -1, -1) & (dOA.expand(B, P, P) > 30) & (dOB > 30) & (sd < CFG['PLAYER_R'] + 26)
+    qLane = (~blocks.any(dim=-1)).float()                                         # [B,q]
+    # adversário na minha linha de chute (segmento eu -> gol adversário)
+    goalPt = torch.stack([sim.dir * W2, torch.zeros(P, device=d)], -1).view(1, P, 1, 2).expand(B, -1, -1, -1)
+    sdG = seg_dist_pts(sim.pos.view(B, 1, P, 2), sim.pos.view(B, P, 1, 2), goalPt)   # [B,p,o]: dist do o à linha p->gol
+    inShotLane = (sdG < CFG['PLAYER_R'] + 30).float()                                # [B,p,o]
+
+    def group(mask, nmax, extra):
         dist = torch.where(mask.expand(B, -1, -1), dq, torch.full_like(dq, 1e9))
         order = dist.argsort(dim=-1)[..., :nmax]                     # [B,P,nmax]
         valid = torch.gather(dist, 2, order) < 1e8
@@ -110,12 +134,15 @@ def build(sim):
         hb = torch.gather(qHas.expand(B, P, P), 2, order)
         kk = torch.gather(qK.expand(B, P, P), 2, order)
         sh = torch.gather(qShare.expand(B, P, P), 2, order)
-        feat = torch.cat([valid.float().unsqueeze(-1), rp, rv, hb.unsqueeze(-1), kk.unsqueeze(-1), sh.unsqueeze(-1)], -1)  # [B,P,nmax,8]
+        cols = [valid.float().unsqueeze(-1), rp, rv, hb.unsqueeze(-1), kk.unsqueeze(-1), sh.unsqueeze(-1)]
+        for e in extra:
+            cols.append(torch.gather(e, 2, order).unsqueeze(-1))
+        feat = torch.cat(cols, -1)
         feat = feat * valid.unsqueeze(-1)
-        return feat.reshape(B, P, nmax * 8)
+        return feat.reshape(B, P, nmax * (8 + len(extra)))
 
-    put(group(same, MAX_MATES))
-    put(group(oppm, MAX_OPPS))
+    put(group(same, MAX_MATES, [qNearOpp.view(B, 1, P).expand(B, P, P), qOppsNear.view(B, 1, P).expand(B, P, P), qLane.view(B, 1, P).expand(B, P, P)]))
+    put(group(oppm, MAX_OPPS, [qBallD.view(B, 1, P).expand(B, P, P), inShotLane]))
 
     # ---- gols (6) ----
     oppGoal = torch.stack([sim.dir * W2, torch.zeros(P, device=d)], -1).view(1, P, 2).expand(B, -1, -1)

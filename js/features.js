@@ -4,7 +4,7 @@
 // posições relativas ao jogador e normalizadas. Tamanho fixo (vagas vazias = zeros).
 const Features = (() => {
   const MAX_MATES = 4, MAX_OPPS = 5;
-  const SELF = 33, BALL = 12, MATE = 8, OPP = 8, GOALS = 6, MISC = 12;
+  const SELF = 33, BALL = 12, MATE = 11, OPP = 10, GOALS = 6, MISC = 12;
   const SIZE = SELF + BALL + MAX_MATES * MATE + MAX_OPPS * OPP + GOALS + MISC;
   const POS = 1 / (CFG.FIELD_W / 2);   // posições em [-1, 1]
   const VEL = 1 / 300;
@@ -96,21 +96,31 @@ const Features = (() => {
     put(p.reach ? 1 : 0);                       // alvo disponível para ação de primeira
     put(b.lock && b.lock !== p ? 1 : 0);        // outro jogador tem a prioridade
 
-    // ---- companheiros (4 × 8), por distância ----
+    // linha livre entre dois pontos (nenhum adversário a menos de 26 px da linha, fora as pontas)
+    const oppsAll = g.players.filter((q) => q.active && q.team !== p.team);
+    const laneFree = (a, c2) => oppsAll.every((o) => V.dist(o.pos, a) <= 30 || V.dist(o.pos, c2) <= 30 || V.segDist(o.pos, a, c2) >= o.r + 26) ? 1 : 0;
+    const nearestOppD = (pt) => oppsAll.length ? Math.min(...oppsAll.map((o) => V.dist(o.pos, pt))) : 1000;
+    const oppsNear = (pt) => oppsAll.filter((o) => V.dist(o.pos, pt) < 200).length;
+    // ---- companheiros (4 × 11), por distância ----
     const mates = g.players.filter((q) => q.active && q.team === p.team && q !== p)
       .sort((a, c) => V.dist(a.pos, p.pos) - V.dist(c.pos, p.pos));
     for (let i = 0; i < MAX_MATES; i++) {
       const q = mates[i];
       if (!q) { for (let j = 0; j < MATE; j++) put(0); continue; }
       put(1); relPos(q.pos); vel(q.vel); put(b.owner === q ? 1 : 0); put(q.isKeeper ? 1 : 0); put(pc.count[q.id] / cells * 4);
+      put(Math.min(1, nearestOppD(q.pos) / 400));   // quão marcado ele está
+      put(oppsNear(q.pos) / 5);                      // adversários perto dele
+      put(laneFree(b.pos, q.pos));                   // linha de passe (da bola até ele) livre
     }
-    // ---- adversários (5 × 8), por distância ----
-    const opps = g.players.filter((q) => q.active && q.team !== p.team)
-      .sort((a, c) => V.dist(a.pos, p.pos) - V.dist(c.pos, p.pos));
+    // ---- adversários (5 × 10), por distância ----
+    const opps = oppsAll.slice().sort((a, c) => V.dist(a.pos, p.pos) - V.dist(c.pos, p.pos));
+    const oppGoalPt = { x: dir * W2, y: 0 };
     for (let i = 0; i < MAX_OPPS; i++) {
       const q = opps[i];
       if (!q) { for (let j = 0; j < OPP; j++) put(0); continue; }
       put(1); relPos(q.pos); vel(q.vel); put(b.owner === q ? 1 : 0); put(q.isKeeper ? 1 : 0); put(pc.count[q.id] / cells * 4);
+      put(Math.min(1, V.dist(q.pos, b.pos) * DIST));                          // distância dele à bola
+      put(V.segDist(q.pos, p.pos, oppGoalPt) < q.r + 30 ? 1 : 0);              // está na minha linha de chute
     }
 
     // ---- gols (6) ----
