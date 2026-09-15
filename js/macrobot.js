@@ -1,13 +1,13 @@
 'use strict';
 // Bot híbrido: a rede neural escolhe a decisão tática (uma das AI.MACROS) a
 // partir da observação; a execução (movimento, mira, botões) é a do script.
-// Goleiros continuam totalmente pelo script.
+// O goleiro também decide pela rede (decisões gk_*); a execução é do script.
 const MacroBot = (() => {
   const SIZES_DEFAULT = [Features.SIZE, 64, AI.MACROS.length];
 
   // policy = { sizes, w }; devolve o input do jogo
   function think(p, g, dt, policy) {
-    if (!policy || p.isKeeper) return AI.think(p, g, dt);
+    if (!policy) return AI.think(p, g, dt);
     return AI.think(p, g, dt, (pp, gg) => {
       const x = Features.build(pp, gg, new Float32Array(Features.SIZE));
       const y = NN.forward(policy.sizes, policy.w, x);

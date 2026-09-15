@@ -41,7 +41,7 @@ function collect(minutes, actor) {
     for (let i = 0; i < 120 / CFG.DT && ticks < ticksTarget; i++) {
       for (const p of g.players) {
         if (!p.active) continue;
-        if (!p.isKeeper && g.state === 'play' && i % 2 === 0) {
+        if (g.state === 'play' && i % 2 === 0) {
           const c = AI.context(p, g);
           const label = M.indexOf(AI.chooseMacro(p, g, c));
           X.push(Features.build(p, g, new Float32Array(NI)));
