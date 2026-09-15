@@ -335,7 +335,7 @@ def main():
                 wgt = sameT.float() * fieldm.view(B, 1, P)
                 spread = (dpp * wgt).sum(-1) / wgt.sum(-1).clamp(min=1) / 500
                 # espaçamento SEMPRE (com e sem a bola): média das distâncias entre companheiros de linha
-                rew += 0.004 * spread * fieldm
+                rew += 0.004 * spread * fieldm * poss   # espaçamento só com a posse (sem bola, compactar é o certo)
                 # companheiros de linha colados (< 100 px): penalidade por par
                 close = ((dpp < 100) & sameT).float() * fieldm.view(B, 1, P) * fieldm.view(B, P, 1)
                 rew -= 0.003 * close.sum(-1)
@@ -362,7 +362,7 @@ def main():
                 # controle de campo: cada jogador de linha ganha pela própria fatia (Voronoi) acima da média
                 cnt, _, _ = FT.pitch_control(sim)
                 share = cnt / (FT.GX * FT.GY)
-                rew += 0.02 * (share - 1.0 / P) * fieldm
+                rew += 0.01 * (share - 1.0 / P) * fieldm * poss   # fatia de campo só com a posse; metade do peso (a macro 'runspace' maximiza isso direto)
                 rew = goalTerm + shape * (rew - goalTerm)   # shaping denso com decaimento; gols nunca decaem
                 # partida terminou (tempo) -> episódio acaba; reinicia essas partidas
                 done = (sim.state == 3)
