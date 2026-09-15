@@ -31,7 +31,6 @@ function makePlayer(id, team, idx, home, name) {
     charge: null,            // {kind:'shot'|'pass', t, dir0, lastAngle, spin}
     queued: null,            // ação de primeira agendada na zona de ação: {kind:'shot'|'pass'|'push', t, charging, dir0, lastAngle, spin}
     armed: { shoot: false, pass: false },   // botão segurado e ainda não consumido (pré-carga de chute/passe)
-    touchChain: 0,           // toques de primeira seguidos sem dominar (a partir do 2º não há passo acelerado)
     held: false, holdT: 0,   // goleiro com a bola nas mãos
     pushFlash: 0, callT: 0, fakeT: 0,
     stats: { goals: 0, assists: 0, steals: 0, saves: 0 },
@@ -499,7 +498,6 @@ class Game {
     const b = this.ball;
     b.owner = p; b.spin = 0; b.lastTouch = p; b.lastTeam = p.team;
     p.held = !!hands; p.holdT = 0;
-    p.touchChain = 0;
   }
 
   kick(p, dir, speed, spin) {
@@ -573,7 +571,6 @@ class Game {
   fireQueued(p) {
     const q = p.queued;
     p.queued = null;
-    p.touchChain++;
     if (q.kind === 'shot') {
       this.shoot(p, q);
     } else if (q.kind === 'pass') {
