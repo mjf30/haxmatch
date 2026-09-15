@@ -18,7 +18,9 @@ npx serve .
 
 No lobby: **Jogar sozinho** (bots), **Criar sala** (você vira host e recebe um
 código de 5 letras) ou **Entrar na sala** com o código de um amigo. Quem entra
-ocupa a vaga de um bot, alternando os times. Esc volta ao lobby.
+ocupa uma vaga, alternando os times. A opção **preencher vagas com bots** decide
+se as vagas sem humano têm bot ou ficam vazias (por exemplo, 1v1 puro). Esc
+volta ao lobby.
 
 Parâmetros de URL: `?n=3|4|5` (tamanho dos times), `?join=CODIGO` (preenche o
 código da sala).

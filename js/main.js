@@ -20,6 +20,7 @@
   const remoteNames = new Map();    // pid -> nome
   let netEvents = [];
   let tick = 0, seq = 0;
+  let withBots = true;              // host: vagas sem humano têm bot (true) ou ficam vazias (false)
 
   // ---------- lobby ----------
   $('teamSize').value = String(teamSize);
@@ -59,10 +60,12 @@
   function startHost() {
     if (typeof Peer === 'undefined') { setStatus('PeerJS não carregou (sem internet?).', true); return; }
     mode = 'host';
+    withBots = $('withBots').checked;
     newGame();
     humanId = teamSize - 1;
     game.players[humanId].human = true;
     game.players[humanId].name = myName();
+    applyBotsSetting();
     const code = NetUtil.makeCode();
     setStatus('Criando sala…');
     net = new NetHost(code, {
@@ -81,7 +84,8 @@
         const slot = freeSlot();
         if (slot === null) return null;
         const p = game.players[slot];
-        p.human = true; p.name = name || `P${slot}`;
+        p.human = true; p.active = true; p.name = name || `P${slot}`;
+        if (game.state === 'play' && V.dist(p.pos, { x: 0, y: -CFG.FIELD_H }) < 1) p.pos = { x: p.home.x, y: p.home.y };
         remoteQueues.set(slot, []); remoteLast.set(slot, emptyInput()); remoteNames.set(slot, p.name);
         renderer.addFlash(`${p.name} entrou`, p.pos, '#fff');
         return slot;
@@ -89,6 +93,7 @@
       onLeave(pid) {
         const p = game.players[pid];
         p.human = false; p.name = (p.team === 0 ? 'V' : 'A') + (p.idx + 1);
+        if (!withBots) { p.active = false; if (game.ball.owner === p) game.ball.owner = null; p.pos = { x: 0, y: -CFG.FIELD_H }; }
         remoteQueues.delete(pid); remoteLast.delete(pid); remoteNames.delete(pid);
       },
       onInput(pid, inp) {
@@ -171,6 +176,15 @@
     const me = game.players[humanId];
     me.human = true; me.name = myName();
     for (const [pid, name] of remoteNames) { game.players[pid].human = true; game.players[pid].name = name; }
+    if (mode === 'host') applyBotsSetting();
+  }
+
+  // sem bots, vagas sem humano ficam fora do campo
+  function applyBotsSetting() {
+    for (const p of game.players) {
+      p.active = withBots || p.human;
+      if (!p.active) p.pos = { x: 0, y: -CFG.FIELD_H };
+    }
   }
 
   function switchPlayer() {

@@ -23,7 +23,7 @@ const NetState = (() => {
         p.charge && p.charge.dir0 ? p.charge.dir0.x : 0, p.charge && p.charge.dir0 ? p.charge.dir0.y : 0, p.charge ? p.charge.spin || 0 : 0,
         p.queued ? p.queued.kind : '', p.queued ? p.queued.t : 0,
         p.queued && p.queued.dir0 ? p.queued.dir0.x : 0, p.queued && p.queued.dir0 ? p.queued.dir0.y : 0, p.queued ? p.queued.spin || 0 : 0,
-        p.stamina, p.effortBar, p.effortT, p.pushFlash, p.callT, p.sprinting ? 1 : 0, p.moving ? 1 : 0, p.human ? 1 : 0, p.name,
+        p.stamina, p.effortBar, p.effortT, p.pushFlash, p.callT, p.sprinting ? 1 : 0, p.moving ? 1 : 0, p.human ? 1 : 0, p.name, p.active ? 1 : 0,
       ]),
       ev: events.filter((e) => FLASH_EVENTS.has(e.type)).map((e) => ({ type: e.type, p: e.p ? e.p.id : -1, v: e.victim ? e.victim.id : -1, team: e.team })),
     };
@@ -47,7 +47,7 @@ const NetState = (() => {
       const qk = a[k++], qt = a[k++], qdx = a[k++], qdy = a[k++], qs = a[k++];
       p.queued = qk ? { kind: qk, t: qt, dir0: { x: qdx, y: qdy }, spin: qs } : null;
       p.stamina = a[k++]; p.effortBar = a[k++]; p.effortT = a[k++]; p.pushFlash = a[k++]; p.callT = a[k++];
-      p.sprinting = !!a[k++]; p.moving = !!a[k++]; p.human = !!a[k++]; p.name = a[k++];
+      p.sprinting = !!a[k++]; p.moving = !!a[k++]; p.human = !!a[k++]; p.name = a[k++]; p.active = !!a[k++];
     });
     const b = game.ball, bb = s.ball;
     b.pos = { x: bb[0], y: bb[1] }; b.vel = { x: bb[2], y: bb[3] }; b.spin = bb[4];
@@ -57,7 +57,7 @@ const NetState = (() => {
 
   // avança posições entre snapshots para o desenho ficar suave
   function extrapolate(game, dt) {
-    for (const p of game.players) p.pos = V.add(p.pos, V.mul(p.vel, dt));
+    for (const p of game.players) if (p.active) p.pos = V.add(p.pos, V.mul(p.vel, dt));
     const b = game.ball;
     b.pos = V.add(b.pos, V.mul(b.vel, dt));
     b.rot += V.len(b.vel) * dt / b.r;

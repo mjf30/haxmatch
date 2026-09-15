@@ -27,7 +27,12 @@ class HumanInput {
       'Space', 'ShiftLeft', 'ShiftRight', 'ControlLeft', 'ControlRight',
       'KeyE', 'KeyF', 'KeyC', 'Tab', 'KeyR', 'KeyH', 'KeyP', 'KeyQ', 'Enter', 'Escape',
     ]);
+    const typing = (e) => {
+      const t = e.target;
+      return t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+    };
     window.addEventListener('keydown', (e) => {
+      if (typing(e)) return;                       // digitando no lobby: deixa o navegador cuidar
       if (gameKeys.has(e.code)) e.preventDefault();
       if (e.repeat) return;
       this.keys.add(e.code);

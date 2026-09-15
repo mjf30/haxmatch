@@ -51,8 +51,8 @@ class Renderer {
     ctx.scale(this.cam.zoom, this.cam.zoom);
     ctx.translate(-this.cam.x, -this.cam.y);
     this.drawPitch();
-    for (const p of game.players) if (p.fallen > 0 || p.getup > 0) this.drawPlayer(game, p, human);
-    for (const p of game.players) if (!(p.fallen > 0 || p.getup > 0)) this.drawPlayer(game, p, human);
+    for (const p of game.players) if (p.active && (p.fallen > 0 || p.getup > 0)) this.drawPlayer(game, p, human);
+    for (const p of game.players) if (p.active && !(p.fallen > 0 || p.getup > 0)) this.drawPlayer(game, p, human);
     if (human) this.drawAim(game, human);
     this.drawBall(game, human);
     this.drawFlashes(dt);

@@ -19,7 +19,7 @@ function makePlayer(id, team, idx, home, name) {
     home: { x: home.x, y: home.y },
     pos: { x: home.x, y: home.y }, vel: { x: 0, y: 0 },
     moveDir: { x: fx, y: 0 }, facing: { x: fx, y: 0 }, moving: false,
-    r: CFG.PLAYER_R, isKeeper: false, human: false,
+    r: CFG.PLAYER_R, isKeeper: false, human: false, active: true,   // active=false: vaga vazia (fora do campo)
     input: emptyInput(), prevInput: emptyInput(),
     stance: 'none', sprinting: false, effortT: 0, effortBar: 1, lastSprintTap: -10,
     stamina: CFG.STAMINA_MAX,
@@ -67,7 +67,7 @@ class Game {
 
   kickoff(first) {
     for (const p of this.players) {
-      p.pos = { x: p.home.x, y: p.home.y };
+      p.pos = p.active ? { x: p.home.x, y: p.home.y } : { x: 0, y: -CFG.FIELD_H };
       p.vel = { x: 0, y: 0 };
       p.action = null; p.charge = null; p.queued = null;
       p.fallen = 0; p.getup = 0; p.recover = 0;
@@ -120,9 +120,9 @@ class Game {
       if (this.time <= 0) { this.time = 0; this.endMatch(); }
     }
     const frozen = this.state !== 'play';
-    for (const p of this.players) this.updatePlayer(p, dt, frozen);
+    for (const p of this.players) if (p.active) this.updatePlayer(p, dt, frozen);
     this.collidePlayers();
-    for (const p of this.players) this.clampPlayer(p);
+    for (const p of this.players) if (p.active) this.clampPlayer(p);
     this.updateBall(dt);
     if (this.state === 'play') this.contacts();
     if (!this.ball.owner) Game.wallsFree(this.ball);   // contatos podem empurrar a bola para a parede
@@ -403,7 +403,7 @@ class Game {
       }
     }
     for (const o of this.players) {
-      if (o.team === p.team || o.fallen > 0 || o.held || a.bodyHit.includes(o.id)) continue;
+      if (!o.active || o.team === p.team || o.fallen > 0 || o.held || a.bodyHit.includes(o.id)) continue;
       if (V.dist(p.pos, o.pos) >= p.r + o.r + 2) continue;
       a.bodyHit.push(o.id); a.body = true;
       o.fallen = CFG.FALL_DUR; o.action = null; o.charge = null;
@@ -466,7 +466,7 @@ class Game {
   passTarget(p, dir, deg) {
     let best = null, bestAng = (deg * Math.PI) / 180;
     for (const m of this.players) {
-      if (m.team !== p.team || m === p) continue;
+      if (!m.active || m.team !== p.team || m === p) continue;
       const d = V.sub(m.pos, this.ball.pos);
       if (V.len(d) < 60) continue;
       const ang = Math.abs(V.angleDiff(V.angle(dir), V.angle(d)));
@@ -613,7 +613,7 @@ class Game {
           // protege a bola do adversário mais próximo
           let near = null, nd = 140;
           for (const q of this.players) {
-            if (q.team === o.team) continue;
+            if (!q.active || q.team === o.team) continue;
             const d = V.dist(q.pos, o.pos);
             if (d < nd) { nd = d; near = q; }
           }
@@ -656,6 +656,7 @@ class Game {
   contacts() {
     const b = this.ball;
     for (const p of this.players) {
+      if (!p.active) continue;
       if (b.owner === p) continue;
       if (b.owner && b.owner.held) continue;
       const d = V.dist(p.pos, b.pos);
@@ -699,7 +700,7 @@ class Game {
     for (let team = 0; team < 2; team++) {
       const keeper = this.players.find((p) => p.team === team && p.isKeeper);
       const inBox = this.players
-        .filter((p) => p.team === team && !p.isKeeper && p.fallen <= 0 && this.inOwnBox(p))
+        .filter((p) => p.active && p.team === team && !p.isKeeper && p.fallen <= 0 && this.inOwnBox(p))
         .sort((a, b) => Math.abs(a.pos.x - this.goalX(team)) - Math.abs(b.pos.x - this.goalX(team)));
       if (!keeper) {
         if (inBox.length) { inBox[0].isKeeper = true; inBox[0].cd.gloves = 1.5; this.events.push({ type: 'gloves', p: inBox[0] }); }
@@ -716,6 +717,7 @@ class Game {
     const ps = this.players;
     for (let i = 0; i < ps.length; i++) for (let j = i + 1; j < ps.length; j++) {
       const a = ps[i], c = ps[j];
+      if (!a.active || !c.active) continue;
       const d = V.dist(a.pos, c.pos), min = a.r + c.r;
       if (d >= min || d < 1e-6) continue;
       const n = V.norm(V.sub(c.pos, a.pos));

@@ -40,8 +40,8 @@ const AI = (() => {
     const dir = p.team === 0 ? 1 : -1;
     const W2 = CFG.FIELD_W / 2;
     const ownGoal = { x: -dir * W2, y: 0 }, oppGoal = { x: dir * W2, y: 0 };
-    const mates = g.players.filter((q) => q.team === p.team && q !== p);
-    const opps = g.players.filter((q) => q.team !== p.team);
+    const mates = g.players.filter((q) => q.active && q.team === p.team && q !== p);
+    const opps = g.players.filter((q) => q.active && q.team !== p.team);
     const ai = p.ai;
     ai.t = (ai.t || 0) + dt;
     inp.aim = { x: ball.pos.x, y: ball.pos.y };
