@@ -15,11 +15,13 @@ const AI = (() => {
   //           quando o goleiro saiu), through (passe em profundidade no ponto futuro)
   // goleiro sem bola: gk_angle (fechar o ângulo), gk_rush (sair pressionando/varrer),
   //           gk_line (ficar na linha), gk_up (subir como líbero)
-  const MACROS = ['shoot', 'pass', 'passback', 'longpass', 'through', 'switch', 'dribble', 'hold',
-    'chase', 'defend', 'cover', 'openfwd', 'openwide', 'overlap', 'runbox', 'runspace', 'openback', 'guardgoal', 'home',
+  //           shootq (chute rápido, carga baixa), carryspace (conduzir para o espaço livre),
+  //           openbest (abrir no ponto mais livre da grade), cutlane (cortar a linha de passe)
+  const MACROS = ['shoot', 'shootq', 'pass', 'passback', 'longpass', 'through', 'switch', 'dribble', 'carryspace', 'hold',
+    'chase', 'defend', 'cover', 'cutlane', 'openfwd', 'openwide', 'overlap', 'runbox', 'runspace', 'openback', 'openbest', 'guardgoal', 'home',
     'gk_angle', 'gk_rush', 'gk_line', 'gk_up'];
   const GK_MACROS = ['gk_angle', 'gk_rush', 'gk_line', 'gk_up'];
-  const KICK_MACROS = ['shoot', 'pass', 'passback', 'longpass', 'through', 'switch'];
+  const KICK_MACROS = ['shoot', 'shootq', 'pass', 'passback', 'longpass', 'through', 'switch'];
 
   function nearest(list, pt) {
     let best = null, bd = Infinity;
@@ -163,6 +165,59 @@ const AI = (() => {
     return best;
   }
 
+  // espaço livre ao longo de um raio: distância até o primeiro adversário perto da linha
+  function rayFree(from, dirv, opps, maxD) {
+    let best = maxD;
+    for (const o of opps) {
+      const rel = V.sub(o.pos, from);
+      const along = V.dot(rel, dirv);
+      if (along <= 0 || along > maxD) continue;
+      const lateral = Math.abs(rel.x * dirv.y - rel.y * dirv.x);
+      if (lateral < 70) best = Math.min(best, along);
+    }
+    return best;
+  }
+  // direção com mais espaço para conduzir (raios em leque à frente, prefere o gol)
+  function spaceDir(p, c) {
+    const toGoal = V.norm(V.sub(c.oppGoal, p.pos));
+    let best = null, bs = -Infinity;
+    for (let k = -3; k <= 3; k++) {
+      const d = V.rot(toGoal, k * 0.35);
+      const fr = rayFree(p.pos, d, c.opps, 500);
+      const s = fr - Math.abs(k) * 40;
+      if (s > bs) { bs = s; best = d; }
+    }
+    return { dir: best, free: bs };
+  }
+  // melhor ponto para abrir: células da grade num raio, livres, com linha de passe e à frente
+  function bestGridPoint(p, g, c, radius) {
+    const anchor = c.ball.owner ? c.ball.owner.pos : c.ball.pos;
+    let best = null, bs = -Infinity;
+    const W2 = CFG.FIELD_W / 2, H2 = CFG.FIELD_H / 2;
+    for (let i = 0; i < 12; i++) for (let j = 0; j < 7; j++) {
+      const pt = { x: -W2 + (i + 0.5) * CFG.FIELD_W / 12, y: -H2 + (j + 0.5) * CFG.FIELD_H / 7 };
+      const dp = V.dist(pt, p.pos);
+      if (dp > radius) continue;
+      if (c.teamHasKeeper && g.inBoxPt(pt, p.team)) continue;
+      const da = V.dist(pt, anchor);
+      if (da < 120 || da > 800) continue;
+      const s = openness(pt, c, p) + 0.25 * (pt.x - anchor.x) * c.dir - 0.15 * dp;
+      if (s > bs) { bs = s; best = pt; }
+    }
+    return best || homePos(p, g, c);
+  }
+  // adversário mais livre (para cortar a linha de passe)
+  function freestOpp(p, c) {
+    let best = null, bs = -Infinity;
+    for (const o of c.opps) {
+      if (o === c.ball.owner || o.isKeeper) continue;
+      const on = nearest(c.mates.concat([p]), o.pos).d;
+      const s = on + ((o.pos.x - c.ball.pos.x) * -c.dir) * 0.3;   // livre e avançado no ataque deles
+      if (s > bs) { bs = s; best = o; }
+    }
+    return best;
+  }
+
   function shotTargetFor(p, c) {
     const gk = c.opps.find((o) => o.isKeeper);
     const cornerY = (CFG.GOAL_W / 2 - 30) * (gk && gk.pos.y > 0 ? -1 : 1);
@@ -185,7 +240,9 @@ const AI = (() => {
       const target = shotTargetFor(p, c);
       const lane = laneClear(ball.pos, target, c.opps.filter((o) => !o.isKeeper), 30);
       const angleOk = Math.abs(p.pos.y) < CFG.FIELD_H * 0.38 || dGoal < 260;
-      if ((dGoal < 820 && lane && angleOk) || dGoal < 260 || (dGoal < 450 && angleOk && g.rng() < 0.03)) return 'shoot';
+      if ((dGoal < 820 && lane && angleOk) || dGoal < 260 || (dGoal < 450 && angleOk && g.rng() < 0.03)) {
+        return (dGoal < 280 || dOpp < 90) ? 'shootq' : 'shoot';   // sem tempo: chute rápido; com tempo: carregado
+      }
       const caller = c.mates.find((m) => m.callT > 0 && !(ai.lastCall && ai.t - ai.lastCall < 2.5));
       if (caller) return 'pass';
       // companheiro arrancando para a frente: passe em profundidade no ponto futuro
@@ -199,6 +256,8 @@ const AI = (() => {
       if ((dOpp < 130 || g.rng() < 0.05) && safePassTarget(g, p, c)) return 'passback';
       if (!c.hasBall) return 'chase';   // bola no alvo mas sem chute/passe bom: domina
       if (dOpp < 60 || g.rng() < 0.01) return 'hold';
+      const sp = spaceDir(p, c);
+      if (sp.free > 260 && dOpp > 90) return 'carryspace';   // tem campo aberto: conduz para o espaço
       return 'dribble';
     }
     // goleiro fora da área (ou sem goleiro) e eu sou o mais perto do gol: assumo o gol
@@ -216,14 +275,14 @@ const AI = (() => {
       const ahead = (p.pos.x - carrier.pos.x) * c.dir > 0;
       const attacking = carrier.pos.x * c.dir > c.W2 * 0.3;   // bola no terço de ataque
       if (order === 0) return attacking ? (ahead ? 'runbox' : 'overlap') : (ahead ? (g.rng() < 0.3 ? 'runspace' : 'openfwd') : 'openback');
-      if (order === 1) return attacking ? (ahead ? 'runbox' : 'openwide') : (ahead && g.rng() < 0.3 ? 'runspace' : 'openwide');
-      return ahead ? 'openfwd' : 'home';
+      if (order === 1) return attacking ? (ahead ? 'runbox' : 'openwide') : (g.rng() < 0.4 ? 'openbest' : (ahead && g.rng() < 0.3 ? 'runspace' : 'openwide'));
+      return g.rng() < 0.4 ? 'openbest' : (ahead ? 'openfwd' : 'home');
     }
     if (ball.owner) {
       const chasers = c.mates.filter((m) => !m.isKeeper).concat([p]);
       const order = chasers.sort((a, b) => V.dist(a.pos, ball.owner.pos) - V.dist(b.pos, ball.owner.pos)).indexOf(p);
       if (order === 0) return 'defend';
-      if (order === 1) return 'cover';
+      if (order === 1) return (freestOpp(p, c) && g.rng() < 0.5) ? 'cutlane' : 'cover';
       return 'home';
     }
     // bola solta: só o mais próximo vai; o segundo cobre; o resto se posiciona
@@ -286,8 +345,8 @@ const AI = (() => {
     if (c.hasBall || first) {
       const chargeOf = () => p.charge || (p.queued && p.queued.kind === 'shot' ? p.queued : null);   // carga real ou da trava
       // sem a bola essas decisões não fazem sentido; com a bola as outras viram "conduzir"
-      if (!['shoot', 'pass', 'passback', 'longpass', 'through', 'switch', 'dribble', 'hold'].includes(macro)) macro = 'dribble';
-      if (ai.mode === 'shoot' && macro !== 'shoot' && macro !== 'longpass' && macro !== 'through') ai.mode = 'none';
+      if (!['shoot', 'shootq', 'pass', 'passback', 'longpass', 'through', 'switch', 'dribble', 'carryspace', 'hold'].includes(macro)) macro = 'dribble';
+      if (ai.mode === 'shoot' && !['shoot', 'shootq', 'longpass', 'through'].includes(macro)) ai.mode = 'none';
       if (ai.mode === 'pass' && macro !== 'pass' && macro !== 'passback' && macro !== 'switch') ai.mode = 'none';
 
       if (macro === 'longpass') {
@@ -357,6 +416,17 @@ const AI = (() => {
       // de primeira sem alvo válido: domina a bola (ir na bola)
       if (!c.hasBall) { ai.mode = 'none'; return execute(p, g, dt, c, 'chase', inp); }
 
+      if (macro === 'carryspace') {
+        // conduz para a direção com mais espaço, correndo e empurrando a bola
+        const sp = spaceDir(p, c);
+        const d = sp.dir || V.norm(V.sub(c.oppGoal, p.pos));
+        inp.mx = d.x; inp.my = d.y;
+        inp.aim = V.add(p.pos, V.mul(d, 150));
+        inp.sprint = p.stamina > 8;
+        if (p.cd.grab <= 0 && sp.free > 160) inp.special = true;   // push ball
+        return inp;
+      }
+
       if (macro === 'hold') {
         // protege a bola: postura de drible, de costas para o marcador, andando devagar para longe dele
         const no = nearest(c.opps, p.pos);
@@ -370,11 +440,12 @@ const AI = (() => {
         return inp;
       }
 
-      if (macro === 'shoot') {
+      if (macro === 'shoot' || macro === 'shootq') {
         if (ai.mode !== 'shoot') {
           const dGoal = V.dist(p.pos, c.oppGoal);
           ai.mode = 'shoot'; ai.modeT = ai.t; ai.aim = shotTargetFor(p, c);
-          ai.chargeT = V.clamp(dGoal / 1000, 0.25, 1) * CFG.CHARGE_MAX;
+          // carregado: forte por padrão (de 300 px em diante, carga cheia); rápido: sai logo
+          ai.chargeT = (macro === 'shootq' ? 0.3 : V.clamp(0.5 + dGoal / 600, 0.6, 1)) * CFG.CHARGE_MAX;
         }
         inp.aim = ai.aim; inp.shoot = true;
         if (c.hasBall) moveTo(c.oppGoal, false);
@@ -447,13 +518,30 @@ const AI = (() => {
 
     // ---------- sem a bola ----------
     ai.mode = 'none';
-    if (['shoot', 'pass', 'passback', 'longpass', 'through', 'switch', 'dribble', 'hold'].includes(macro)) macro = 'chase';
+    if (['shoot', 'shootq', 'pass', 'passback', 'longpass', 'through', 'switch', 'dribble', 'carryspace', 'hold'].includes(macro)) macro = 'chase';
     if (GK_MACROS.includes(macro)) macro = 'cover';   // decisões de goleiro num jogador de linha: cobrir
     // desmarcar na área só faz sentido com a bola no campo de ataque
     if (macro === 'runbox' && ball.pos.x * dir < 0) macro = 'openfwd';
     if (macro === 'defend' && !(ball.owner && ball.owner.team !== p.team)) macro = ball.owner ? 'openback' : 'chase';
 
     // abrir espaço para receber: ponto livre perto de um alvo nominal relativo ao portador/bola
+    // abrir no melhor ponto da grade (Voronoi): livre, com linha de passe, à frente
+    if (macro === 'openbest') {
+      const target = bestGridPoint(p, g, c, 520);
+      moveTo(target, V.dist(p.pos, target) > 220);
+      inp.aim = ball.pos;
+      return inp;
+    }
+    // cortar a linha de passe: entre o portador e o adversário mais livre
+    if (macro === 'cutlane') {
+      const fo = freestOpp(p, c);
+      if (!fo || !ball.owner || ball.owner.team === p.team) return execute(p, g, dt, c, 'cover', inp);
+      const target = V.lerp(ball.owner.pos, fo.pos, 0.55);
+      moveTo(target, V.dist(p.pos, target) > 160);
+      inp.aim = ball.pos;
+      if (V.dist(p.pos, target) < 60) inp.stance = true;   // pronto para interceptar
+      return inp;
+    }
     // assumir o gol: corre para a frente do próprio gol (dentro da área, recebe as luvas)
     if (macro === 'guardgoal') {
       const target = { x: c.ownGoal.x + dir * 70, y: V.clamp(ball.pos.y * 0.3, -CFG.GOAL_W / 2 * 0.6, CFG.GOAL_W / 2 * 0.6) };

@@ -4,3 +4,4 @@ Thumbs.db
 train/latest.json
 train_gpu/ckpt.pt
 train_gpu/__pycache__/
+train_gpu/ckpt_sanity.pt

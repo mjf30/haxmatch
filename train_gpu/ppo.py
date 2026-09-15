@@ -86,7 +86,8 @@ def main():
     ap.add_argument('--export_every', type=int, default=25)
     ap.add_argument('--approach', type=float, default=0.02)   # shaping denso: aproximar-se da bola solta (currículo inicial)
     ap.add_argument('--sanity', action='store_true')
-    ap.add_argument('--sanity2', action='store_true')   # teste: recompensa densa trivial (todos se aproximam da bola) para validar o PPO
+    ap.add_argument('--sanity2', action='store_true')
+    ap.add_argument('--ckpt', type=str, default=None)   # caminho do checkpoint (testes de sanidade usam outro)   # teste: recompensa densa trivial (todos se aproximam da bola) para validar o PPO
     args = ap.parse_args()
     dev = torch.device('cuda')
     torch.manual_seed(args.seed)
@@ -106,7 +107,7 @@ def main():
     leagueIdx = torch.zeros(B, dtype=torch.long, device=dev)
     oppPols = []
     team1 = (sim.team == 1).view(1, P).expand(B, P)
-    ckpt = os.path.join(os.path.dirname(__file__), 'ckpt.pt')
+    ckpt = args.ckpt or os.path.join(os.path.dirname(__file__), 'ckpt_sanity.pt' if (args.sanity or args.sanity2) else 'ckpt.pt')
     outjs = os.path.join(os.path.dirname(__file__), '..', 'js', 'nn_raw_weights.js')
     # estatísticas
     stat = dict(goals=0.0, matches=0.0, shots=0.0, control=0.0, passes=0.0, passOk=0.0, steps=0)
