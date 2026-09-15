@@ -43,16 +43,18 @@ function setupScenario(sim, g, nnTeam, scenario, rng) {
 function mulberry(a) { return function () { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 
 function playMatch(sim, policy, opp, opts) {
-  const { Game, AI, CFG, NNBot, MacroBot } = sim;
+  const { Game, AI, CFG, V, NNBot, MacroBot } = sim;
   const act = (p, g, pol) => (pol.kind === 'macro' ? MacroBot.think(p, g, CFG.DT, pol) : NNBot.think(p, g, CFG.DT, pol));
   const seconds = opts.seconds || 60;
   const nnTeam = opts.nnTeam || 0;
-  const g = new Game({ teamSize: opts.teamSize || 4, seed: opts.seed || 1 });
-  g.time = seconds;   // partida curta
   const rng = mulberry(opts.seed || 1);
+  const teamSize = opts.teamSize || (3 + Math.floor(rng() * 3));   // 0 = sorteia 3v3 / 4v4 / 5v5
+  const g = new Game({ teamSize, seed: opts.seed || 1 });
+  g.time = seconds;   // partida curta
   const scenario = opts.scenario || 'match';
   setupScenario(sim, g, nnTeam, scenario, rng);
-  const m = { gf: 0, ga: 0, poss: 0, ballX: 0, shots: 0, ticks: 0, touches: 0, onTarget: 0, stall: 0, episodes: 1, scenario };
+  const m = { gf: 0, ga: 0, poss: 0, ballX: 0, shots: 0, ticks: 0, touches: 0, onTarget: 0, stall: 0, episodes: 1, scenario, passes: 0, passOk: 0, spread: 0, crowd: 0 };
+  let lastPass = null;   // {tick, team}
   const steps = Math.floor(seconds / CFG.DT);
   const EPISODE = Math.floor((scenario === 'build' ? (opts.buildEpisode || 15) : (opts.attackEpisode || 8)) / CFG.DT);   // episódio: 8 s (ataque) / 15 s (construção) e recomeça
   let epTick = 0, possStreak = 0;
@@ -73,6 +75,18 @@ function playMatch(sim, policy, opp, opts) {
         possStreak++;
         if (possStreak > 4 / CFG.DT) m.stall++;   // enrolando: mais de 4 s seguidos com a bola sem soltar
       } else possStreak = 0;
+      // espaçamento/aglomeração só quando o time da rede TEM a bola (na defesa, compactar é legítimo)
+      if (g.ball.owner && g.ball.owner.team === nnTeam) {
+        m.attackTicks = (m.attackTicks || 0) + 1;
+        const mine = g.players.filter((p) => p.active && p.team === nnTeam && !p.isKeeper);
+        let sum = 0, n = 0, near = 0;
+        for (let a = 0; a < mine.length; a++) {
+          if (V.dist(mine[a].pos, g.ball.pos) < 150) near++;
+          for (let b = a + 1; b < mine.length; b++) { sum += Math.min(500, V.dist(mine[a].pos, mine[b].pos)); n++; }
+        }
+        if (n) m.spread += sum / n / 500;
+        if (near >= 3) m.crowd++;
+      }
     }
     if ((scenario === 'attack' || scenario === 'build') && ++epTick >= EPISODE) { epTick = 0; m.episodes++; g.kickoff(false); setupScenario(sim, g, nnTeam, scenario, rng); }
     for (const e of g.events) {
@@ -81,6 +95,8 @@ function playMatch(sim, policy, opp, opts) {
         // no currículo de ataque, recomeça o cenário após o gol
         if (scenario === 'attack' || scenario === 'build') { epTick = 0; m.episodes++; g.kickoff(false); setupScenario(sim, g, nnTeam, scenario, rng); }
       }
+      if ((e.type === 'pass' || (e.type === 'shot' && e.p.ai && e.p.ai.macro === 'longpass')) && e.p.team === nnTeam) { m.passes++; lastPass = { tick: i, team: nnTeam, from: e.p }; }
+      if ((e.type === 'control' || e.type === 'first-touch') && lastPass && e.p.team === nnTeam && e.p !== lastPass.from && i - lastPass.tick < 2.5 / CFG.DT) { m.passOk++; lastPass = null; }
       if (e.type === 'shot' && e.p.team === nnTeam) {
         m.shots++;
         // chute na direção do gol adversário (linha da bola cruza a boca do gol)
@@ -114,6 +130,9 @@ function fitnessOf(m) {
     + 0.3 * Math.min(12, m.shots)      // finalizar
     + 1.5 * Math.min(8, m.onTarget)    // finalizar no gol
     + 0.02 * Math.min(50, m.touches)   // ir na bola
+    + 0.6 * Math.min(12, m.passOk)     // passes completados (trocar passes)
+    + 2.0 * (m.spread / Math.max(1, m.attackTicks || 0))   // espaçamento entre companheiros (com a bola)
+    - 0.006 * m.crowd                  // três ou mais em cima da bola
     - 0.004 * m.stall;                 // enrolar com a bola
 }
 

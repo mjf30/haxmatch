@@ -113,10 +113,15 @@ node train/eval.js 6 360                                               # rede x 
 ```
 
 **Arquitetura que funcionou: híbrida.** A IA programada foi separada em decisão
-tática (`AI.chooseMacro`: chutar, passar, conduzir, ir na bola, marcar, apoiar,
-recuar) e execução (`AI.execute`: movimento, mira, botões). A rede
-(`js/macrobot.js`, 118→64→7) escolhe só a decisão; a execução é a do script.
-Goleiros ficam no script.
+tática (`AI.chooseMacro`) e execução (`AI.execute`: movimento, mira, botões).
+Decisões com bola: chutar, passar, passe seguro atrás, passe longo (chute
+carregado), inversão de lado, conduzir, segurar/esperar. Sem bola: ir na bola,
+pressionar o portador, cobrir entre bola e gol, abrir à frente / pelo lado /
+atrás, ultrapassar por fora, desmarcar na área, voltar à posição. A rede
+(`js/macrobot.js`, 121→64→16) escolhe só a decisão; a execução é a do script.
+Goleiros ficam no script. A recompensa do ES inclui passes completados e
+espaçamento entre companheiros quando o time tem a bola (na defesa compactar é
+livre), e os tamanhos 3v3/4v4/5v5 são sorteados por partida.
 
 1. `node train/macro_clone.js --minutes 40 --epochs 6 --dagger 3` clona a
    decisão do script (classificação) com DAgger. Só isso já vence o script

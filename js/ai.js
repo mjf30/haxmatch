@@ -4,7 +4,14 @@
 //   execute(p, g, dt, ctx, macro, inp) -> movimento, mira e botões que realizam a decisão
 // A rede neural (js/macrobot.js) substitui só a decisão; a execução é a mesma.
 const AI = (() => {
-  const MACROS = ['shoot', 'pass', 'dribble', 'chase', 'defend', 'support', 'home'];
+  // com bola: shoot, pass (melhor opção), passback (opção segura atrás), dribble, hold (proteger e esperar)
+  // sem bola: chase (ir na bola solta), defend (pressionar o portador), cover (fechar o espaço
+  //           entre a bola e o gol / marcar adversário livre), openfwd / openwide / openback
+  //           (abrir espaço à frente / pelo lado / atrás do portador para receber), home
+  // com bola: shoot, pass, passback, longpass, switch (inverter o lado), dribble, hold (segurar/esperar)
+  // sem bola: chase, defend, cover, openfwd, openwide, overlap (ultrapassar por fora), runbox
+  //           (desmarcar na área), openback, home
+  const MACROS = ['shoot', 'pass', 'passback', 'longpass', 'switch', 'dribble', 'hold', 'chase', 'defend', 'cover', 'openfwd', 'openwide', 'overlap', 'runbox', 'openback', 'home'];
 
   function nearest(list, pt) {
     let best = null, bd = Infinity;
@@ -66,6 +73,60 @@ const AI = (() => {
     return g.clampField(h, 40);
   }
 
+  // quão livre está um ponto para receber: distância ao adversário mais próximo,
+  // linha de passe limpa a partir da bola, e longe de companheiros (não aglomerar)
+  function openness(pt, c, p) {
+    const dOpp = nearest(c.opps, pt).d;
+    const lane = laneClear(c.ball.pos, pt, c.opps, 24) ? 1 : 0;
+    const dMate = nearest(c.mates, pt).d;
+    return Math.min(dOpp, 260) + 120 * lane + Math.min(dMate, 200) * 0.6;
+  }
+  // procura, numa grade ao redor de um alvo nominal, o ponto mais livre dentro do campo
+  function bestOpenPoint(nominal, c, p, g, radius) {
+    let best = null, bs = -Infinity;
+    for (let i = -2; i <= 2; i++) for (let j = -2; j <= 2; j++) {
+      let pt = g.clampField({ x: nominal.x + i * radius / 2, y: nominal.y + j * radius / 2 }, 45);
+      // não entra na própria área (deixa o goleiro em paz)
+      if (c.teamHasKeeper && g.inBoxPt(pt, p.team)) continue;
+      const s = openness(pt, c, p) - 0.15 * V.dist(pt, nominal);
+      if (s > bs) { bs = s; best = pt; }
+    }
+    return best || g.clampField(nominal, 45);
+  }
+  // alvo nominal relativo ao portador (ou à bola) para cada macro de apoio
+  function supportNominal(kind, p, g, c) {
+    const anchor = c.ball.owner ? c.ball.owner.pos : c.ball.pos;
+    const dir = c.dir;
+    if (kind === 'openfwd') return { x: anchor.x + dir * 280, y: anchor.y * 0.5 + (p.pos.y >= anchor.y ? 1 : -1) * 90 };
+    if (kind === 'openwide') { const side = p.pos.y >= anchor.y ? 1 : -1; return { x: anchor.x + dir * 60, y: V.clamp(anchor.y + side * 320, -CFG.FIELD_H / 2 + 80, CFG.FIELD_H / 2 - 80) }; }
+    if (kind === 'overlap') {   // ultrapassagem por fora: à frente do portador, pela lateral
+      const side = p.pos.y >= anchor.y ? 1 : -1;
+      return { x: anchor.x + dir * 320, y: V.clamp(anchor.y + side * 300, -CFG.FIELD_H / 2 + 70, CFG.FIELD_H / 2 - 70) };
+    }
+    if (kind === 'runbox') {    // desmarcar na área adversária
+      const W2 = CFG.FIELD_W / 2;
+      return { x: dir * (W2 - CFG.BOX_W * 0.55), y: V.clamp(p.pos.y * 0.6 + (p.pos.y >= 0 ? 1 : -1) * 60, -CFG.BOX_H / 2 * 0.7, CFG.BOX_H / 2 * 0.7) };
+    }
+    return { x: anchor.x - dir * 240, y: anchor.y * 0.4 + (p.pos.y >= anchor.y ? 1 : -1) * 120 };   // openback
+  }
+
+  // inversão: companheiro do outro lado do campo, com linha limpa
+  function switchTarget(g, p, c) {
+    let best = null, bs = -Infinity;
+    for (const m of c.mates) {
+      if (m.isKeeper) continue;
+      const dy = Math.abs(m.pos.y - p.pos.y), d = V.dist(p.pos, m.pos);
+      if (dy < 300 || d > 1100) continue;
+      if ((m.pos.x - p.pos.x) * c.dir < -150) continue;
+      if (!laneClear(c.ball.pos, m.pos, c.opps, 26)) continue;
+      const on = nearest(c.opps, m.pos).d;
+      if (on < 90) continue;
+      const s = on + dy * 0.3;
+      if (s > bs) { bs = s; best = m; }
+    }
+    return best;
+  }
+
   function shotTargetFor(p, c) {
     const gk = c.opps.find((o) => o.isKeeper);
     const cornerY = (CFG.GOAL_W / 2 - 30) * (gk && gk.pos.y > 0 ? -1 : 1);
@@ -88,17 +149,76 @@ const AI = (() => {
       const caller = c.mates.find((m) => m.callT > 0 && !(ai.lastCall && ai.t - ai.lastCall < 2.5));
       if (caller) return 'pass';
       if ((dOpp < 120 || g.rng() < 0.004) && bestPass(g, p, c.mates, c.opps, c.dir, 100)) return 'pass';
+      // companheiro livre lá na frente: lançamento com chute carregado
+      if ((dOpp < 160 || g.rng() < 0.01) && longPassTarget(g, p, c)) return 'longpass';
+      // inversão de jogada quando o lado está congestionado
+      if ((dOpp < 140 || g.rng() < 0.01) && switchTarget(g, p, c)) return 'switch';
+      // pressionado, sem passe à frente: opção segura atrás, ou proteger a bola
+      if (dOpp < 90 && safePassTarget(g, p, c)) return 'passback';
+      if (dOpp < 60 || g.rng() < 0.01) return 'hold';
       return 'dribble';
     }
-    if (ball.owner && ball.owner.team === p.team) return 'support';
+    // companheiro com a bola: quem está mais perto do portador apoia de perto (atrás),
+    // os outros abrem espaço (à frente ou pelos lados), sem todos correrem para a bola
+    if (ball.owner && ball.owner.team === p.team) {
+      const carrier = ball.owner;
+      const field = c.mates.filter((m) => !m.isKeeper && m !== carrier).concat([p]).sort((a, b) => V.dist(a.pos, carrier.pos) - V.dist(b.pos, carrier.pos));
+      const order = field.indexOf(p);
+      const ahead = (p.pos.x - carrier.pos.x) * c.dir > 0;
+      const attacking = carrier.pos.x * c.dir > c.W2 * 0.3;   // bola no terço de ataque
+      if (order === 0) return attacking ? (ahead ? 'runbox' : 'overlap') : (ahead ? 'openfwd' : 'openback');
+      if (order === 1) return attacking ? (ahead ? 'runbox' : 'openwide') : 'openwide';
+      return ahead ? 'openfwd' : 'home';
+    }
     if (ball.owner) {
       const chasers = c.mates.filter((m) => !m.isKeeper).concat([p]);
-      return nearest(chasers, ball.owner.pos).p === p ? 'defend' : 'home';
+      const order = chasers.sort((a, b) => V.dist(a.pos, ball.owner.pos) - V.dist(b.pos, ball.owner.pos)).indexOf(p);
+      if (order === 0) return 'defend';
+      if (order === 1) return 'cover';
+      return 'home';
     }
+    // bola solta: só o mais próximo vai; o segundo cobre; o resto se posiciona
     const dBall = V.dist(p.pos, ball.pos);
     const pred = predictBall(g, V.clamp(dBall / 450, 0, 1.2));
     const rank = c.mates.filter((m) => !m.isKeeper && V.dist(m.pos, pred) < V.dist(p.pos, pred)).length;
-    return rank < 2 ? 'chase' : 'home';
+    if (rank === 0) return 'chase';
+    if (rank === 1) return (pred.x - p.pos.x) * c.dir > 0 ? 'cover' : 'openfwd';
+    return 'home';
+  }
+
+  // passe longo (com chute carregado): companheiro bem à frente, livre, com linha limpa
+  function longPassTarget(g, p, c) {
+    let best = null, bs = -Infinity;
+    for (const m of c.mates) {
+      if (m.isKeeper) continue;
+      const d = V.dist(p.pos, m.pos);
+      if (d < 600 || d > 1500) continue;
+      if ((m.pos.x - p.pos.x) * c.dir < 250) continue;        // tem que ser para a frente
+      const lead = V.add(m.pos, V.mul(m.vel, 0.6));
+      if (!laneClear(c.ball.pos, lead, c.opps, 30)) continue;
+      const on = nearest(c.opps, lead).d;
+      if (on < 110) continue;
+      const s = (m.pos.x - p.pos.x) * c.dir + on * 0.5;
+      if (s > bs) { bs = s; best = m; }
+    }
+    return best;
+  }
+
+  // passe seguro: companheiro atrás (ou ao lado) com linha limpa e sem marcador perto
+  function safePassTarget(g, p, c) {
+    let best = null, bs = -Infinity;
+    for (const m of c.mates) {
+      if (m.isKeeper && !m.callT) continue;
+      const d = V.dist(p.pos, m.pos);
+      if (d < 80 || d > 700) continue;
+      if ((m.pos.x - p.pos.x) * c.dir > 60) continue;          // não é "para trás"
+      if (!laneClear(c.ball.pos, m.pos, c.opps, 24)) continue;
+      const on = nearest(c.opps, m.pos).d;
+      if (on < 90) continue;
+      const s = on - d * 0.2;
+      if (s > bs) { bs = s; best = m; }
+    }
+    return best;
   }
 
   // ---------- execução ----------
@@ -115,9 +235,66 @@ const AI = (() => {
 
     if (c.hasBall) {
       // sem a bola essas decisões não fazem sentido; com a bola as outras viram "conduzir"
-      if (macro !== 'shoot' && macro !== 'pass' && macro !== 'dribble') macro = 'dribble';
-      if (ai.mode === 'shoot' && macro !== 'shoot') ai.mode = 'none';
-      if (ai.mode === 'pass' && macro !== 'pass') ai.mode = 'none';
+      if (!['shoot', 'pass', 'passback', 'longpass', 'switch', 'dribble', 'hold'].includes(macro)) macro = 'dribble';
+      if (ai.mode === 'shoot' && macro !== 'shoot' && macro !== 'longpass') ai.mode = 'none';
+      if (ai.mode === 'pass' && macro !== 'pass' && macro !== 'passback' && macro !== 'switch') ai.mode = 'none';
+
+      if (macro === 'longpass') {
+        if (ai.mode !== 'shoot') {
+          const t = longPassTarget(g, p, c);
+          if (!t) macro = 'dribble';
+          else {
+            const lead = V.add(t.pos, V.mul(t.vel, 0.6));
+            const d = V.dist(p.pos, lead);
+            ai.mode = 'shoot'; ai.modeT = ai.t; ai.aim = lead;
+            ai.chargeT = V.clamp((d - 300) / 1200, 0.3, 0.85) * CFG.CHARGE_MAX;   // força pela distância, sem estourar
+          }
+        }
+        if (ai.mode === 'shoot') {
+          inp.aim = ai.aim; inp.shoot = true;
+          if (p.charge && p.charge.t >= ai.chargeT) { inp.shoot = false; ai.mode = 'none'; }
+          else if (!p.charge && ai.t - ai.modeT > 0.2) ai.mode = 'none';
+          return inp;
+        }
+      }
+
+      if (macro === 'switch') {
+        if (ai.mode !== 'pass') {
+          const t = switchTarget(g, p, c);
+          if (!t) macro = 'dribble';
+          else { ai.mode = 'pass'; ai.aim = V.add(t.pos, V.mul(t.vel, 0.35)); ai.holdN = 3 + Math.floor(V.dist(p.pos, t.pos) / 220); }
+        }
+        if (ai.mode === 'pass') {
+          inp.aim = ai.aim; inp.pass = ai.holdN-- > 0;
+          if (ai.holdN < 0) ai.mode = 'none';
+          return inp;
+        }
+      }
+
+      if (macro === 'passback') {
+        if (ai.mode !== 'pass') {
+          const t = safePassTarget(g, p, c);
+          if (!t) macro = 'hold';
+          else { ai.mode = 'pass'; ai.aim = V.add(t.pos, V.mul(t.vel, 0.3)); ai.holdN = 2 + Math.floor(V.dist(p.pos, t.pos) / 250); }
+        }
+        if (ai.mode === 'pass') {
+          inp.aim = ai.aim; inp.pass = ai.holdN-- > 0;
+          if (ai.holdN < 0) ai.mode = 'none';
+          return inp;
+        }
+      }
+      if (macro === 'hold') {
+        // protege a bola: postura de drible, de costas para o marcador, andando devagar para longe dele
+        const no = nearest(c.opps, p.pos);
+        const away = no.p ? V.norm(V.sub(p.pos, no.p.pos)) : { x: -dir, y: 0 };
+        const toGoal = V.norm(V.sub(c.oppGoal, p.pos));
+        const st = V.norm(V.add(V.mul(away, 0.7), V.mul(toGoal, 0.3)));
+        inp.mx = st.x * 0.6; inp.my = st.y * 0.6;
+        inp.stance = true;
+        inp.aim = V.add(p.pos, V.mul(toGoal, 150));
+        if (no.d < 60 && p.cd.dribble <= 0 && g.rng() < 0.08) inp.special = true;   // drible para escapar
+        return inp;
+      }
 
       if (macro === 'shoot') {
         if (ai.mode !== 'shoot') {
@@ -195,18 +372,39 @@ const AI = (() => {
 
     // ---------- sem a bola ----------
     ai.mode = 'none';
-    if (macro === 'shoot' || macro === 'pass' || macro === 'dribble') macro = 'chase';
-    if (macro === 'support' && !(ball.owner && ball.owner.team === p.team)) macro = ball.owner ? 'defend' : 'chase';
-    if (macro === 'defend' && !(ball.owner && ball.owner.team !== p.team)) macro = ball.owner ? 'support' : 'chase';
+    if (['shoot', 'pass', 'passback', 'longpass', 'switch', 'dribble', 'hold'].includes(macro)) macro = 'chase';
+    // desmarcar na área só faz sentido com a bola no campo de ataque
+    if (macro === 'runbox' && ball.pos.x * dir < 0) macro = 'openfwd';
+    if (macro === 'defend' && !(ball.owner && ball.owner.team !== p.team)) macro = ball.owner ? 'openback' : 'chase';
 
-    if (macro === 'support') {
-      const carrier = ball.owner;
-      const h = homePos(p, g, c);
-      h.x += dir * 140;
-      if (V.dist(h, carrier.pos) < 170) h.y += (p.pos.y >= carrier.pos.y ? 1 : -1) * 170;
-      const t = g.clampField(h, 40);
-      moveTo(t, V.dist(p.pos, t) > 220);
-      inp.aim = carrier.pos;
+    // abrir espaço para receber: ponto livre perto de um alvo nominal relativo ao portador/bola
+    if (macro === 'openfwd' || macro === 'openwide' || macro === 'openback' || macro === 'overlap' || macro === 'runbox') {
+      const target = bestOpenPoint(supportNominal(macro, p, g, c), c, p, g, macro === 'runbox' ? 110 : 140);
+      moveTo(target, macro === 'overlap' ? V.dist(p.pos, target) > 120 : V.dist(p.pos, target) > 260);
+      inp.aim = ball.pos;                       // de frente para a bola, pronto para o toque de primeira
+      // bola passada na minha direção: dominar / toque de primeira
+      if (!ball.owner && g.ballInZone(p)) {
+        const bs = V.len(ball.vel);
+        if (bs > 180 && V.dist(p.pos, c.oppGoal) < 520 && g.rng() < 0.5) { inp.aim = { x: c.oppGoal.x, y: (g.rng() - 0.5) * (CFG.GOAL_W - 60) }; inp.shoot = true; }
+      }
+      return inp;
+    }
+
+    // cobrir: fechar o espaço entre a bola e o próprio gol, marcando o adversário livre mais perigoso
+    if (macro === 'cover') {
+      const danger = c.opps.filter((o) => !o.isKeeper && o !== ball.owner)
+        .sort((a, b) => V.dist(a.pos, c.ownGoal) - V.dist(b.pos, c.ownGoal))[0];
+      let target;
+      if (danger && V.dist(danger.pos, c.ownGoal) < V.dist(ball.pos, c.ownGoal) + 150) {
+        target = V.add(danger.pos, V.mul(V.norm(V.sub(c.ownGoal, danger.pos)), 45));   // entre ele e o gol
+      } else {
+        target = V.lerp(ball.pos, c.ownGoal, 0.35);                                      // linha bola-gol
+      }
+      target = g.clampField(target, 40);
+      if (c.teamHasKeeper && g.inBoxPt(target, p.team)) target.x = -dir * (c.W2 - CFG.BOX_W - 40);
+      moveTo(target, V.dist(p.pos, target) > 200);
+      inp.aim = ball.pos;
+      if (V.dist(p.pos, ball.pos) < 160) inp.stance = true;   // pronto para interceptar
       return inp;
     }
 
@@ -230,7 +428,7 @@ const AI = (() => {
 
     if (macro === 'chase') {
       if (ball.owner) {   // bola com alguém: ir na bola = marcar/apoiar conforme o dono
-        return execute(p, g, dt, c, ball.owner.team === p.team ? 'support' : 'defend', inp);
+        return execute(p, g, dt, c, ball.owner.team === p.team ? 'openback' : 'defend', inp);
       }
       const dBall = V.dist(p.pos, ball.pos);
       const pred = predictBall(g, V.clamp(dBall / 450, 0, 1.2));

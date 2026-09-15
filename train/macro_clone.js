@@ -109,7 +109,7 @@ function train(epochs) {
 function quickEval(n) {
   let gf = 0, ga = 0, poss = 0, ticks = 0, shots = 0;
   for (let i = 0; i < n; i++) {
-    const m = playMatch(sim, policy, 'script', { seed: 6000 + i, nnTeam: i % 2, seconds: 120, teamSize: 4 });
+    const m = playMatch(sim, policy, 'script', { seed: 6000 + i, nnTeam: i % 2, seconds: 120, teamSize: 3 + (i % 3) });
     gf += m.gf; ga += m.ga; poss += m.poss; ticks += m.ticks; shots += m.shots;
   }
   console.log(`  >> híbrido x script (${n} partidas de 120 s): ${gf} x ${ga} · posse ${(100 * poss / ticks).toFixed(0)}% · chutes ${shots}`);

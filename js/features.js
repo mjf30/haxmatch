@@ -4,7 +4,7 @@
 // posições relativas ao jogador e normalizadas. Tamanho fixo (vagas vazias = zeros).
 const Features = (() => {
   const MAX_MATES = 4, MAX_OPPS = 5;
-  const SELF = 31, BALL = 12, MATE = 7, OPP = 7, GOALS = 6, MISC = 6;
+  const SELF = 31, BALL = 12, MATE = 7, OPP = 7, GOALS = 6, MISC = 9;
   const SIZE = SELF + BALL + MAX_MATES * MATE + MAX_OPPS * OPP + GOALS + MISC;
   const POS = 1 / (CFG.FIELD_W / 2);   // posições em [-1, 1]
   const VEL = 1 / 300;
@@ -75,6 +75,10 @@ const Features = (() => {
     put(g.time / CFG.MATCH_TIME);
     put((H2 - Math.abs(p.pos.y)) * DIST);        // distância à parede lateral mais próxima
     put((W2 - Math.abs(p.pos.x)) * DIST);        // distância à linha de fundo mais próxima
+    // aglomeração e espaço: companheiros / adversários num raio de 220 px, e distância ao adversário mais próximo
+    put(mates.filter((q) => V.dist(q.pos, p.pos) < 220).length / 4);
+    put(opps.filter((q) => V.dist(q.pos, p.pos) < 220).length / 5);
+    put(Math.min(1, (opps.length ? Math.min(...opps.map((q) => V.dist(q.pos, p.pos))) : 1000) / 400));
     return out;
   }
 

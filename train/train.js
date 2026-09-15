@@ -21,7 +21,7 @@ const SECONDS = parseFloat(opt('seconds', '60'));
 const SIGMA = parseFloat(opt('sigma', '0.05'));
 const LR = parseFloat(opt('lr', '0.03'));
 const MATCHES = parseInt(opt('matches', '2'), 10);   // partidas por candidato
-const TEAM = parseInt(opt('team', '4'), 10);
+const TEAM = parseInt(opt('team', '0'), 10);   // 0 = sorteia 3v3/4v4/5v5 por partida
 const WORKERS = parseInt(opt('workers', String(Math.max(1, os.cpus().length - 1))), 10);
 const SELFPLAY = flag('selfplay') || flag('league');
 const ATTACK = parseFloat(opt('attack', '0'));     // fração de partidas no cenário de ataque
