@@ -555,8 +555,9 @@ class Game {
     const speed = V.len(ball.vel);
     if (owner) owner.cd.grab = 0.4;
     if (this.inOwnBox(p) && speed < CFG.GK_PARRY_SPEED) {
-      this.take(p, true);
-      this.events.push({ type: 'save', p });
+      const hands = ball.lastTeam !== p.team;   // recuo do próprio time: fica nos pés
+      this.take(p, hands);
+      this.events.push({ type: hands ? 'save' : 'control', p });
     } else {
       ball.owner = null;
       const n = V.norm(V.sub(ball.pos, p.pos));
@@ -865,7 +866,9 @@ class Game {
         if (V.dot(rel, n) < 0) b.vel = V.add(V.mul(V.reflect(rel, n), CFG.DEFLECT_BOUNCE), p.vel);
         continue;
       }
-      const hands = p.isKeeper && this.inOwnBox(p);
+      // mãos só se o último toque foi do adversário: recuo do próprio time ou o próprio
+      // chute voltando da parede vai para os pés (sem repulsão/intocabilidade)
+      const hands = p.isKeeper && this.inOwnBox(p) && b.lastTeam !== p.team;
       const limit = hands ? (p.stance === 'def' ? CFG.GK_PARRY_SPEED * 1.3 : CFG.GK_PARRY_SPEED)
         : (p.stance === 'def' ? CFG.CONTROL_MAX_DEF : CFG.CONTROL_MAX);
       if (canGrab && speed <= limit) {

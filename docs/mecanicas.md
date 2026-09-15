@@ -181,7 +181,9 @@ uma corrida. Goleiro não gasta stamina no próprio campo.
 bolas muito fortes são espalmadas em vez de agarradas; segurar até 5 s; posse nas
 mãos intocável; sair da área solta para os pés. Com a bola nas mãos existe uma
 zona de repulsão que empurra adversários para longe (não vale com a bola no pé,
-como num recuo).
+como num recuo). O goleiro só pega com as mãos se o último toque foi do
+adversário: recuo de companheiro ou o próprio chute voltando da parede vão para
+os pés, sem intocabilidade, para ninguém enrolar devolvendo a bola ao goleiro.
 
 ### Fora do escopo 2D (por decisão)
 - Lob, cabeçada, voleio, chapéu (rainbow flick), jump block, bola por cima.
