@@ -14,7 +14,7 @@ const CFG = {
   SPEED: 135, SPRINT: 210, EXTRA_EFFORT: 1.22, ACCEL: 1000, DECEL: 1300,
   SPEED_BALL: 110,                  // andando com a bola nos pés
   SPRINT_BALL: 165,                 // correndo com a bola nos pés (gasta stamina)
-  MUL_DRIBBLE: 0.7, MUL_DEF: 0.8, MUL_CHARGE: 0.55, MUL_RECOVER: 0.5,
+  MUL_DRIBBLE: 0.7, MUL_DEF: 0.8, MUL_CHARGE: 0.35, MUL_CHARGE_PASS: 0.9, MUL_RECOVER: 0.5,   // carregando chute: bem lento; passe: quase normal
   KEEPER_HOLD_SPEED: 95,
 
   // ---- stamina ----

@@ -411,7 +411,7 @@ class Game {
     else if (p.effortT > 0 && p.moving) base = CFG.SPRINT * CFG.EXTRA_EFFORT;   // arrancada: ignora stamina/exaustão
     else if (p.sprinting && p.moving) base = CFG.SPRINT;
     else base = CFG.SPEED;
-    if (p.charge) base *= CFG.MUL_CHARGE;
+    if (p.charge) base *= (p.charge.kind === 'pass' ? CFG.MUL_CHARGE_PASS : CFG.MUL_CHARGE);
     if (p.recover > 0) base *= CFG.MUL_RECOVER;
     if (p.exhausted && p.effortT <= 0) base *= CFG.MUL_EXHAUSTED;
     if (p.dribbleLag > 0) base *= CFG.DRIBBLE_LAG_MUL;
