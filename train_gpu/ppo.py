@@ -137,7 +137,7 @@ def export_js(pol, path, info):
                'w': [round(float(v), 5) for v in w.tolist()]}
         head = "'use strict';\n// Pesos PPO (controle total) exportados por train_gpu/ppo.py. %s\nconst NN_RAW_WEIGHTS = %s;\n"
     else:
-        obj = {'kind': 'macro', 'sizes': [FT.SIZE] + [pol.hid] * pol.depth + [pol.nout], 'obs': FT.SIZE, 'info': info, 'skip': SKIP, 'mask': True,
+        obj = {'kind': 'macro', 'sizes': [FT.SIZE] + [pol.hid] * pol.depth + [pol.nout], 'obs': FT.SIZE, 'info': info, 'skip': SKIP, 'mask': True, 'reflex': False,
                'w': [round(float(v), 5) for v in w.tolist()]}
         head = "'use strict';\n// Pesos PPO híbrido (decisão tática; execução do script) exportados por train_gpu/ppo.py. %s\nconst NN_WEIGHTS = %s;\n"
     with open(path, 'w', encoding='utf-8') as f:

@@ -25,20 +25,21 @@ const MacroBot = (() => {
     return AI.think(p, g, dt, (pp, gg, cc) => {
       // variante: a rede só decide com a bola (ou de primeira); sem a bola, a movimentação vem do script (papéis, Voronoi, estilo)
       if (policy.offball === 'script' && !cc.hasBall && !cc.firstTouch) return AI.chooseMacro(pp, gg, cc);
-      if (skip > 1 && pp._mac && pp._mac.n < skip) { pp._mac.n++; return AI.reflex(pp, gg, cc, pp._mac.macro); }
+      const refl = policy.reflex === false ? (a, b, c, m) => m : AI.reflex;   // redes treinadas com o script completo dispensam os reflexos
+      if (skip > 1 && pp._mac && pp._mac.n < skip) { pp._mac.n++; return refl(pp, gg, cc, pp._mac.macro); }
       const x = Features.build(pp, gg, new Float32Array(Features.SIZE));
       const y = NN.forward(policy.sizes, policy.w, x);
       let best = -1;
       for (let i = 0; i < y.length; i++) { if (policy.mask && !allowed(pp, gg, i)) continue; if (best < 0 || y[i] > y[best]) best = i; }
       const macro = AI.MACROS[best];
       if (skip > 1) pp._mac = { macro, n: 1 };
-      return AI.reflex(pp, gg, cc, macro);   // reflexos: regras fixas nas situações críticas
+      return refl(pp, gg, cc, macro);   // reflexos: regras fixas nas situações críticas (ES); desligados nas redes PPO guiadas
     });
   }
 
   function fromExport(obj) {
     if (!obj || !obj.w || obj.kind !== 'macro') return null;
-    return { sizes: obj.sizes, skip: obj.skip || 1, mask: !!obj.mask, offball: obj.offball || (typeof process !== 'undefined' && process.env && process.env.OFFBALL) || null, w: Float32Array.from(obj.w) };
+    return { sizes: obj.sizes, skip: obj.skip || 1, mask: !!obj.mask, reflex: obj.reflex !== false, offball: obj.offball || (typeof process !== 'undefined' && process.env && process.env.OFFBALL) || null, w: Float32Array.from(obj.w) };
   }
 
   return { think, fromExport, SIZES_DEFAULT };
