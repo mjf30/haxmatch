@@ -446,7 +446,7 @@ class ScriptAI:
         ownHalf = torch.where(C.pos[..., 0] * C.dir < 0, 0.12, 0.0)
         carry = (free / 500).clamp(0, 1) * 0.55 * (1 - pressure) * torch.where(C.keeper, 0.3, 1.0) + torch.where(dGoal < 900, 0.1, 0.0) + ownHalf
         opt(C.hasBall, torch.where((free > 380) & (dOpp > 150), M['carryspace'], M['dribble']), carry)
-        opt(C.hasBall, M['hold'], 0.1 + 0.35 * pressure * (dOpp < 70).float())
+        opt(C.hasBall, M['hold'], 0.05 + 0.25 * pressure * (dOpp < 60).float())
         opt(~C.hasBall, M['chase'], torch.full((B, P), 0.3, device=C.d))
         S = torch.stack(scores, -1); Mm = torch.stack(macros, -1)
         best = S.argmax(dim=-1)
@@ -759,7 +759,7 @@ class ScriptAI:
             out['sprint'] = torch.where(md, clearAhead & (sim.stamina > 10) & (C.dGoalP > 600), out['sprint'])
             close = dOpp < 80
             out['stance'] = torch.where(md & close, torch.ones_like(md), out['stance'])
-            out['special'] = torch.where(md & close, (sim.cd['dribble'] <= 0) & (rng() < 0.06), out['special'])
+            out['special'] = torch.where(md & close, (sim.cd['dribble'] <= 0) & (rng() < 0.25), out['special'])
 
         # ================= sem a bola =================
         off = ~carrier | needChase

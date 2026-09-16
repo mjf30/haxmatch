@@ -500,6 +500,7 @@ def main():
                 if beta > 0:
                     nll = -sum(d.log_prob(GD[mb][..., i]) for i, d in enumerate(pol.dists(O[mb])))   # guia: segue a decisão do script (macro ou input discretizado)
                     wB = 1 + 3 * ((O[mb][:, OBS_HASBALL] > 0.5) | (O[mb][:, OBS_HELD] > 0.5)).float()   # decisões com a bola são raras e decisivas: peso 4x
+                    if pol.kind == 'raw': wB = wB + 3 * (GD[mb][:, 8] > 0).float()   # desarmes são raros no professor: peso 4x quando o script desarma
                     gl = (nll * wB).sum() / wB.sum()
                     loss = loss + beta * gl; stats_gl = stats_gl + float(gl.detach()) if 'stats_gl' in dir() else float(gl.detach())
                 opt.zero_grad(); loss.backward(); gn = nn.utils.clip_grad_norm_(pol.parameters(), 0.5); opt.step()

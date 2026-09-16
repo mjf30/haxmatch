@@ -35,13 +35,13 @@ const AI = (() => {
     // O que define o estilo é a movimentação: vagas de papéis (support apoio, wide ponta, fwd opção curta à frente, runner profundidade),
     // distâncias (supBack/supSide, fwdDist, wideY/wideX), gatilho das corridas, ponto de abertura (gridRadius/gridProg),
     // contra-pressão ao perder a bola alta, compactação e forma base (homeWidth/homeAdvance).
-    balanced: { prog: 0.5, space: 0.3, margin: 0.2, share: 0.15, through: 0.15, long: -0.03, switch: 0, cross: 0.1, passback: -0.2, carry: 0.55, carrySpace: 380, hold: 0.1,
+    balanced: { prog: 0.5, space: 0.3, margin: 0.2, share: 0.15, through: 0.15, long: -0.03, switch: 0, cross: 0.1, passback: -0.2, carry: 0.55, carrySpace: 380, hold: 0.05,
       supBack: 240, supSide: 120, fwdDist: 280, wideY: 380, wideX: 60, slots: ['support', 'wide', 'runner', 'wide'], runTrigger: 'space', gridRadius: 520, gridProg: 0.5, counterpress: 1, compact: 1.0, homeWidth: 1.0, homeAdvance: 0 },
-    short: { prog: 0.5, space: 0.3, margin: 0.2, share: 0.15, through: 0.15, long: -0.03, switch: 0, cross: 0.1, passback: -0.2, carry: 0.55, carrySpace: 380, hold: 0.1,
+    short: { prog: 0.5, space: 0.3, margin: 0.2, share: 0.15, through: 0.15, long: -0.03, switch: 0, cross: 0.1, passback: -0.2, carry: 0.55, carrySpace: 380, hold: 0.05,
       supBack: 160, supSide: 160, fwdDist: 260, wideY: 270, wideX: 100, slots: ['support', 'fwd', 'wide', 'runner'], runTrigger: 'space', gridRadius: 450, gridProg: 0.5, counterpress: 2, compact: 1.0, homeWidth: 0.9, homeAdvance: 60 },
-    long: { prog: 0.5, space: 0.3, margin: 0.2, share: 0.15, through: 0.15, long: 0.05, switch: 0.1, cross: 0.2, passback: -0.2, carry: 0.55, carrySpace: 380, hold: 0.1,
+    long: { prog: 0.5, space: 0.3, margin: 0.2, share: 0.15, through: 0.15, long: 0.05, switch: 0.1, cross: 0.2, passback: -0.2, carry: 0.55, carrySpace: 380, hold: 0.05,
       supBack: 300, supSide: 220, fwdDist: 360, wideY: 480, wideX: 200, slots: ['wide', 'wide', 'runner', 'support'], runTrigger: 'space', gridRadius: 650, gridProg: 0.6, counterpress: 1, compact: 0.9, homeWidth: 1.5, homeAdvance: 60 },
-    direct: { prog: 0.5, space: 0.3, margin: 0.2, share: 0.15, through: 0.25, long: -0.03, switch: 0, cross: 0.1, passback: -0.2, carry: 0.6, carrySpace: 380, hold: 0.1,
+    direct: { prog: 0.5, space: 0.3, margin: 0.2, share: 0.15, through: 0.25, long: -0.03, switch: 0, cross: 0.1, passback: -0.2, carry: 0.6, carrySpace: 380, hold: 0.05,
       supBack: 180, supSide: 140, fwdDist: 320, wideY: 330, wideX: 150, slots: ['runner', 'support', 'runner', 'wide'], runTrigger: 'always', gridRadius: 600, gridProg: 0.7, counterpress: 1, compact: 1.0, homeWidth: 1.0, homeAdvance: 120 },
   };
   function styleOf(p, g) { return (g.styles && STYLES[g.styles[p.team]]) || STYLES.balanced; }
@@ -411,7 +411,7 @@ const AI = (() => {
       const carry = V.clamp(sd.free / 500, 0, 1) * S.carry * (1 - pressure) * (p.isKeeper ? 0.3 : 1) + (dGoal < 900 ? 0.1 : 0) + ownHalf;
       // conduzir calmo por padrão; arrancar para o espaço com campo à frente e ninguém perto
       opts.push({ macro: (sd.free > S.carrySpace && dOpp > 150) ? 'carryspace' : 'dribble', score: carry });
-      opts.push({ macro: 'hold', score: S.hold + 0.35 * pressure * (dOpp < 70 ? 1 : 0) });
+      opts.push({ macro: 'hold', score: S.hold + 0.25 * pressure * (dOpp < 60 ? 1 : 0) });   // proteger só como último recurso
     } else {
       opts.push({ macro: 'chase', score: 0.3 });   // bola no alvo mas sem chute/passe bom: domina
     }
@@ -744,7 +744,7 @@ const AI = (() => {
       if (clearAhead && p.stamina > 10 && V.dist(p.pos, c.oppGoal) > 600) inp.sprint = true;   // corre com a bola no pé
       if (dOpp < 80) {
         inp.stance = true;                                // postura de drible
-        if (p.cd.dribble <= 0 && g.rng() < 0.06) inp.special = true;
+        if (p.cd.dribble <= 0 && g.rng() < 0.25) inp.special = true;   // drible para escapar da pressão
       }
       return inp;
     }
