@@ -855,6 +855,54 @@ const AI = (() => {
     return inp;
   }
 
+  // ---------- reflexos: regras fixas que sobrescrevem a rede em situações críticas ----------
+  // A rede decide o jogo; aqui só entram situações que não pedem adaptação e nas quais errar custa caro.
+  // Devolve a macro a executar (a da rede, ou a do reflexo).
+  function reflex(p, g, c, macro) {
+    const ball = c.ball, dir = c.dir;
+    const hasBall = c.hasBall;
+    if (p.isKeeper && !hasBall) {
+      const inBox = g.inBoxPt(ball.pos, p.team);
+      if (!ball.owner && inBox) {   // bola solta na minha área: se sou o mais perto (ou está muito perto), vou buscar
+        const myD = V.dist(p.pos, ball.pos), oppD = nearest(c.opps, ball.pos).d;
+        if (myD < oppD - 10 || myD < 90) return 'gk_rush';
+      }
+      if (ball.owner && ball.owner.team !== p.team && inBox && V.dist(p.pos, ball.pos) < 160) return 'gk_rush';   // atacante com a bola na área: sair
+      return macro;
+    }
+    if (hasBall || (c.firstTouch && KICK_MACROS.includes(macro))) {
+      if (p.held) return macro;
+      const dGoal = V.dist(p.pos, c.oppGoal);
+      const dOpp = nearest(c.opps, p.pos).d;
+      const gk = c.opps.find((o) => o.isKeeper);
+      const target = shotTargetFor(p, c);
+      const lane = laneClear(ball.pos, target, c.opps.filter((o) => !o.isKeeper), 30);
+      const angle = 1 - Math.min(1, Math.abs(p.pos.y) / (CFG.FIELD_H * 0.42));
+      // chance clara: perto, ângulo aberto e linha livre (ou goleiro fora da linha) -> finaliza
+      const gkOut = gk ? Math.abs(gk.pos.x - c.oppGoal.x) > 220 : true;
+      if (lane && ((dGoal < 320 && angle > 0.4) || (dGoal < 520 && angle > 0.6 && gkOut)) && !['shoot', 'shootq', 'cross'].includes(macro)) {
+        const gkD = gk ? V.dist(gk.pos, p.pos) : 9999;
+        return (dOpp < 90 || gkD < 200 || !hasBall) ? 'shootq' : 'shoot';
+      }
+      // cruzamento muito claro para uma rede que não conhece a macro (28 saídas)
+      if (hasBall && macro !== 'cross') { const cr = crossTarget(g, p, c); if (cr && cr.value >= 0.9) return 'cross'; }
+      return macro;
+    }
+    // sem a bola
+    if (!ball.owner) {   // bola solta: quem é claramente o mais perto do time vai na bola (alguém tem que ir)
+      const dBall = V.dist(p.pos, ball.pos);
+      const pred = predictBall(g, V.clamp(dBall / 450, 0, 1.2));
+      const mine = V.dist(p.pos, pred);
+      const others = c.mates.filter((m) => !m.isKeeper);
+      if (!p.isKeeper && others.every((m) => V.dist(m.pos, pred) > mine + 60) && mine < 350 && !['chase', 'gk_rush'].includes(macro)) return 'chase';
+    } else if (ball.owner.team !== p.team && !p.isKeeper) {   // último homem não sobe com o adversário atacando
+      const field = c.mates.filter((m) => !m.isKeeper).concat([p]);
+      const lastMan = field.slice().sort((a, b) => V.dist(a.pos, c.ownGoal) - V.dist(b.pos, c.ownGoal))[0] === p;
+      if (lastMan && ['runspace', 'runbox', 'overlap', 'openfwd', 'openwide', 'openbest', 'openback', 'home'].includes(macro)) return 'cover';
+    }
+    return macro;
+  }
+
   // ---------- tempo de reação + decisão ----------
   // macroFn (opcional): (p, g, ctx) -> macro. Sem ele, usa a decisão do script.
   // tempo de reação (todos os bots, rede incluída): após mudar o dono da bola, repete o último
@@ -1021,5 +1069,5 @@ const AI = (() => {
     return inp;
   }
 
-  return { think, reactionHold, MACROS, STYLES, chooseMacro, context, execute, keeperExecute, crossTarget };
+  return { think, reactionHold, reflex, MACROS, STYLES, chooseMacro, context, execute, keeperExecute, crossTarget };
 })();

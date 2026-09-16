@@ -49,6 +49,15 @@ if (RESUME && fs.existsSync(RESUME)) {
   const txt = fs.readFileSync(RESUME, 'utf8');
   const json = JSON.parse(txt.slice(txt.indexOf('{'), txt.lastIndexOf('}') + 1));
   theta = Float32Array.from(json.w);
+  if (theta.length !== N && json.sizes && json.sizes.length === sizes.length) {   // saídas a menos (macros novas): completa com zeros
+    const old = json.sizes, hid = old[old.length - 2], nOld = old[old.length - 1], nNew = sizes[sizes.length - 1];
+    const head = NN.paramCount(old) - (hid * nOld + nOld);
+    const t2 = new Float32Array(N); t2.set(theta.subarray(0, head), 0);
+    t2.set(theta.subarray(head, head + hid * nOld), head);                       // pesos da saída (linhas antigas)
+    t2.set(theta.subarray(head + hid * nOld, head + hid * nOld + nOld), head + hid * nNew);   // bias antigo
+    for (let o = nOld; o < nNew; o++) t2[head + hid * nNew + o] = -3;          // macros novas começam improváveis
+    theta = t2; console.log('camada de saída ampliada de', nOld, 'para', nNew, 'macros');
+  }
   console.log('retomando de', RESUME, '(', theta.length, 'parâmetros )');
 } else {
   theta = NN.init(sizes, rng);

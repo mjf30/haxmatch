@@ -22,15 +22,15 @@ const MacroBot = (() => {
   function think(p, g, dt, policy) {
     if (!policy) return AI.think(p, g, dt);
     const skip = policy.skip || 1;   // treinada com frame-skip: decide a cada `skip` ticks e mantém a macro
-    return AI.think(p, g, dt, (pp, gg) => {
-      if (skip > 1 && pp._mac && pp._mac.n < skip) { pp._mac.n++; return pp._mac.macro; }
+    return AI.think(p, g, dt, (pp, gg, cc) => {
+      if (skip > 1 && pp._mac && pp._mac.n < skip) { pp._mac.n++; return AI.reflex(pp, gg, cc, pp._mac.macro); }
       const x = Features.build(pp, gg, new Float32Array(Features.SIZE));
       const y = NN.forward(policy.sizes, policy.w, x);
       let best = -1;
       for (let i = 0; i < y.length; i++) { if (policy.mask && !allowed(pp, gg, i)) continue; if (best < 0 || y[i] > y[best]) best = i; }
       const macro = AI.MACROS[best];
       if (skip > 1) pp._mac = { macro, n: 1 };
-      return macro;
+      return AI.reflex(pp, gg, cc, macro);   // reflexos: regras fixas nas situações críticas
     });
   }
 
