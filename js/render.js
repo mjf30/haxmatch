@@ -266,7 +266,7 @@ class Renderer {
     if (!(hasBall || held || inZone)) return;
     // linha de mira
     const aim = p.input.aim;
-    ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 1.5; ctx.setLineDash([4, 6]);
+    ctx.strokeStyle = this.showValue ? 'rgba(0,0,0,0.45)' : 'rgba(255,255,255,0.25)'; ctx.lineWidth = 1.5; ctx.setLineDash([4, 6]);
     ctx.beginPath(); ctx.moveTo(b.pos.x, b.pos.y); ctx.lineTo(aim.x, aim.y); ctx.stroke();
     ctx.setLineDash([]);
     // preview de chute com efeito
@@ -485,10 +485,10 @@ class Renderer {
           ctx.beginPath(); ctx.arc(ex, ey, 3.5, 0, Math.PI * 2); ctx.fillStyle = 'rgba(255,230,120,0.95)'; ctx.fill();
         }
       } else {
-        ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+        ctx.strokeStyle = this.showValue ? 'rgba(0,0,0,0.9)' : 'rgba(255,255,255,0.9)';
         ctx.beginPath(); ctx.moveTo(c.x - 10, c.y); ctx.lineTo(c.x - 3, c.y); ctx.moveTo(c.x + 3, c.y); ctx.lineTo(c.x + 10, c.y);
         ctx.moveTo(c.x, c.y - 10); ctx.lineTo(c.x, c.y - 3); ctx.moveTo(c.x, c.y + 3); ctx.lineTo(c.x, c.y + 10); ctx.stroke();
-        ctx.beginPath(); ctx.arc(c.x, c.y, 1.5, 0, Math.PI * 2); ctx.fillStyle = '#fff'; ctx.fill();
+        ctx.beginPath(); ctx.arc(c.x, c.y, 1.5, 0, Math.PI * 2); ctx.fillStyle = this.showValue ? '#000' : '#fff'; ctx.fill();
       }
     }
     // placar detalhado (Tab)
