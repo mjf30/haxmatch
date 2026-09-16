@@ -27,7 +27,9 @@
   const rawPolicy = (typeof NN_RAW_WEIGHTS !== 'undefined') ? RawBot.fromExport(NN_RAW_WEIGHTS) : null;
   const macroPpoPolicy = (typeof NN_MACRO_PPO !== 'undefined') ? MacroBot.fromExport(NN_MACRO_PPO) : null;
   const nnOffPolicy = nnPolicy ? Object.assign({}, nnPolicy, { offball: 'script' }) : null;   // rede com a bola, script sem a bola
-  const controlPolicy = (typeof NN_GUIDED !== 'undefined') ? MacroBot.fromExport(NN_GUIDED) : null;   // híbrido PPO guiado pelo script
+  const controlPolicy = (typeof NN_GUIDED !== 'undefined') ? MacroBot.fromExport(NN_GUIDED) : null;   // híbrido PPO guiado pelo script (4v4)
+  const msPolicy = (typeof NN_GUIDED_MS !== 'undefined') ? MacroBot.fromExport(NN_GUIDED_MS) : null;   // híbrido PPO guiado, treinado em 3v3/4v4/5v5
+  if (!msPolicy) { const o = $('botKind').querySelector('option[value="nn_ms"]'); if (o) o.disabled = true; }
   for (const [k, pol] of [['nn_ppo', macroPpoPolicy], ['nn_zero', controlPolicy]]) if (!pol) { const o = $('botKind').querySelector(`option[value="${k}"]`); if (o) o.disabled = true; }
   if (!rawPolicy) { const o = $('botKind').querySelector('option[value="raw"]'); if (o) { o.disabled = true; o.textContent = 'rede PPO (sem pesos)'; } }
   if (!nnPolicy) { const o = $('botKind').querySelector('option[value="nn"]'); if (o) { o.disabled = true; o.textContent = 'rede neural (sem pesos)'; } }
@@ -35,6 +37,7 @@
     : botKind === 'nn_ppo' && macroPpoPolicy ? MacroBot.think(p, game, dt, macroPpoPolicy)
     : botKind === 'nn_off' && nnOffPolicy ? MacroBot.think(p, game, dt, nnOffPolicy)
     : botKind === 'nn_zero' && controlPolicy ? MacroBot.think(p, game, dt, controlPolicy)
+    : botKind === 'nn_ms' && msPolicy ? MacroBot.think(p, game, dt, msPolicy)
     : botKind === 'nn' && nnPolicy ? (nnKind === 'macro' ? MacroBot.think(p, game, dt, nnPolicy) : NNBot.think(p, game, dt, nnPolicy)) : AI.think(p, game, dt));
 
   // ---------- lobby ----------
