@@ -38,7 +38,7 @@ const AI = (() => {
     balanced: { prog: 0.5, space: 0.3, margin: 0.2, share: 0.15, through: 0.15, long: -0.03, switch: 0, cross: 0.1, passback: -0.2, carry: 0.55, carrySpace: 380, hold: 0.1,
       supBack: 240, supSide: 120, fwdDist: 280, wideY: 380, wideX: 60, slots: ['support', 'wide', 'runner', 'wide'], runTrigger: 'space', gridRadius: 520, gridProg: 0.5, counterpress: 1, compact: 1.0, homeWidth: 1.0, homeAdvance: 0 },
     short: { prog: 0.5, space: 0.3, margin: 0.2, share: 0.15, through: 0.15, long: -0.03, switch: 0, cross: 0.1, passback: -0.2, carry: 0.55, carrySpace: 380, hold: 0.1,
-      supBack: 160, supSide: 160, fwdDist: 260, wideY: 270, wideX: 100, slots: ['support', 'fwd', 'wide', 'runner'], runTrigger: 'space', gridRadius: 450, gridProg: 0.5, counterpress: 2, compact: 1.15, homeWidth: 0.8, homeAdvance: 60 },
+      supBack: 160, supSide: 160, fwdDist: 260, wideY: 270, wideX: 100, slots: ['support', 'fwd', 'wide', 'runner'], runTrigger: 'space', gridRadius: 450, gridProg: 0.5, counterpress: 2, compact: 1.0, homeWidth: 0.9, homeAdvance: 60 },
     long: { prog: 0.5, space: 0.3, margin: 0.2, share: 0.15, through: 0.15, long: 0.05, switch: 0.1, cross: 0.2, passback: -0.2, carry: 0.55, carrySpace: 380, hold: 0.1,
       supBack: 300, supSide: 220, fwdDist: 360, wideY: 480, wideX: 200, slots: ['wide', 'wide', 'runner', 'support'], runTrigger: 'space', gridRadius: 650, gridProg: 0.6, counterpress: 1, compact: 0.9, homeWidth: 1.5, homeAdvance: 60 },
     direct: { prog: 0.5, space: 0.3, margin: 0.2, share: 0.15, through: 0.25, long: -0.03, switch: 0, cross: 0.1, passback: -0.2, carry: 0.6, carrySpace: 380, hold: 0.1,
@@ -96,7 +96,9 @@ const AI = (() => {
 
   function homePos(p, g, c) {
     const S = styleOf(p, g);
-    const h = { x: p.home.x + c.dir * (S.homeAdvance || 0), y: p.home.y * (S.homeWidth || 1) };   // forma base do estilo: largura e altura
+    const oppBall = c.ball.owner && c.ball.owner.team !== p.team;
+    // forma base do estilo (largura e altura) só com a posse ou bola solta; na defesa, forma normal
+    const h = oppBall ? { x: p.home.x, y: p.home.y } : { x: p.home.x + c.dir * (S.homeAdvance || 0), y: p.home.y * (S.homeWidth || 1) };
     h.x += V.clamp(c.ball.pos.x * 0.45 * S.compact, -c.W2 * 0.4, c.W2 * 0.4);
     h.y += c.ball.pos.y * 0.35 * S.compact;
     if (c.ball.owner && c.ball.owner.team !== p.team) h.x -= c.dir * 150 * S.compact;
@@ -110,11 +112,31 @@ const AI = (() => {
 
   // quão livre está um ponto para receber: distância ao adversário mais próximo,
   // linha de passe limpa a partir da bola, e longe de companheiros (não aglomerar)
-  function openness(pt, c, p) {
+  // ganho de controle de campo (Voronoi) se eu estivesse em pt: células a até 260 px que passariam a ser minhas;
+  // tomar do adversário vale cheio, redistribuir de companheiro vale pouco (não adianta ficar em cima dele)
+  function controlGain(pt, p, g) {
+    const pc = (typeof Features !== 'undefined' && Features.pitchControl) ? Features.pitchControl(g) : null;
+    if (!pc) return 0;
+    const GX = pc.cx.length, GY = pc.cy.length;
+    let gain = 0;
+    for (let j = 0; j < GY; j++) for (let i = 0; i < GX; i++) {
+      const dx = pc.cx[i] - pt.x, dy = pc.cy[j] - pt.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > 260 * 260) continue;
+      const own = pc.owner[j * GX + i];
+      if (own < 0 || own === p.id) continue;
+      const o = g.players[own];
+      const ox = o.pos.x - pc.cx[i], oy = o.pos.y - pc.cy[j];
+      if (d2 < ox * ox + oy * oy) gain += (o.team !== p.team) ? 1 : 0.3;
+    }
+    return gain;
+  }
+  function openness(pt, c, p, g) {
     const dOpp = nearest(c.opps, pt).d;
     const lane = laneClear(c.ball.pos, pt, c.opps, 24) ? 1 : 0;
     const dMate = nearest(c.mates, pt).d;
-    return Math.min(dOpp, 260) + 120 * lane + Math.min(dMate, 260) * 0.8 - (dMate < 120 ? 150 : 0);
+    const gain = g ? controlGain(pt, p, g) : 0;
+    return Math.min(dOpp, 260) + 120 * lane + Math.min(dMate, 260) * 0.8 - (dMate < 120 ? 150 : 0) + 45 * gain;
   }
   // procura, numa grade ao redor de um alvo nominal, o ponto mais livre dentro do campo
   function bestOpenPoint(nominal, c, p, g, radius) {
@@ -123,7 +145,7 @@ const AI = (() => {
       let pt = g.clampField({ x: nominal.x + i * radius / 2, y: nominal.y + j * radius / 2 }, 45);
       // não entra na própria área (deixa o goleiro em paz)
       if (c.teamHasKeeper && g.inBoxPt(pt, p.team)) continue;
-      const s = openness(pt, c, p) - 0.6 * V.dist(pt, nominal);   // o alvo nominal (papel do estilo) pesa; a abertura só ajusta
+      const s = openness(pt, c, p, g) - 0.6 * V.dist(pt, nominal);   // o alvo nominal (papel do estilo) pesa; a abertura só ajusta
       if (s > bs) { bs = s; best = pt; }
     }
     return best || g.clampField(nominal, 45);
@@ -239,7 +261,7 @@ const AI = (() => {
       if (c.teamHasKeeper && g.inBoxPt(pt, p.team)) continue;
       const da = V.dist(pt, anchor);
       if (da < 120 || da > 800) continue;
-      const s = openness(pt, c, p) + styleOf(p, g).gridProg * (pt.x - anchor.x) * c.dir - 0.15 * dp;   // progressão pesa conforme o estilo
+      const s = openness(pt, c, p, g) + styleOf(p, g).gridProg * (pt.x - anchor.x) * c.dir - 0.15 * dp;   // progressão pesa conforme o estilo
       if (s > bs) { bs = s; best = pt; }
     }
     return best || homePos(p, g, c);
