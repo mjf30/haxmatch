@@ -122,25 +122,27 @@ const AI = (() => {
     const j = V.clamp(Math.floor((pt.y + CFG.FIELD_H / 2) / (CFG.FIELD_H / GY)), 0, GY - 1);
     return VALUE_MAP.v[j * GX + i];
   }
-  // variação do valor controlado pelo time se p estivesse em pt (EPV: soma de valor(célula) x controle(célula)).
-  // Recalcula só as células perto da origem e do destino: a célula muda de dono se p era/passa a ser o mais perto.
+  // variação do valor controlado pelo time se p estivesse em pt (EPV = soma de valor(célula) x P(controle)).
+  // Controle por tempo de chegada com velocidade (Features.pitchControlTT). Para p no candidato, parado:
+  // t = REACT + dist/SPRINT; os outros mantêm as velocidades atuais. Só as células a até 350 px da origem ou do destino mudam.
   function valueGain(pt, p, g, c) {
-    const pc = (typeof Features !== 'undefined' && Features.pitchControl) ? Features.pitchControl(g) : null;
+    const pc = (typeof Features !== 'undefined' && Features.pitchControlTT) ? Features.pitchControlTT(g) : null;
     if (!pc) return 0;
-    const GX = pc.cx.length, GY = pc.cy.length, dir = c.dir;
-    const others = g.players.filter((q) => q.active && q !== p);
+    const dir = c.dir, team = p.team, opp = 1 - team;
+    const T1 = pc.t1[team], T2 = pc.t2[team], Wq = pc.who[team], TO = pc.t1[opp];
     let gain = 0;
-    for (let j = 0; j < GY; j++) for (let i = 0; i < GX; i++) {
-      const cx = pc.cx[i], cy = pc.cy[j];
-      const dNew = Math.hypot(cx - pt.x, cy - pt.y), dOld = Math.hypot(cx - p.pos.x, cy - p.pos.y);
-      if (dNew > 320 && dOld > 320) continue;
-      const own = pc.owner[j * GX + i];
-      const beforeMine = own >= 0 && g.players[own].team === p.team ? 1 : 0;
-      // depois: mais perto entre os outros, ou eu em pt
-      let best = null, bd = Infinity;
-      for (const q of others) { const d = Math.hypot(q.pos.x - cx, q.pos.y - cy); if (d < bd) { bd = d; best = q; } }
-      const afterMine = (dNew < bd) ? 1 : (best && best.team === p.team ? 1 : 0);
-      if (afterMine !== beforeMine) gain += (afterMine - beforeMine) * valueAt({ x: cx, y: cy }, dir);
+    for (let j = 0; j < pc.TY; j++) for (let i = 0; i < pc.TX; i++) {
+      const x = pc.cx[i], y = pc.cy[j];
+      const dNew = Math.hypot(x - pt.x, y - pt.y), dOld = Math.hypot(x - p.pos.x, y - p.pos.y);
+      if (dNew > 350 && dOld > 350) continue;
+      const k = j * pc.TX + i;
+      const before = pc.p0[k];
+      const pBefore = team === 0 ? before : 1 - before;
+      // melhor tempo do meu time sem mim, e com "eu" em pt
+      const tRest = Wq[k] === p.id ? T2[k] : T1[k];
+      const tNew = Math.min(tRest, pc.REACT + dNew / CFG.SPRINT);
+      const pAfter = 1 / (1 + Math.exp((tNew - TO[k]) / pc.TAU));
+      gain += (pAfter - pBefore) * valueAt({ x, y }, dir);
     }
     return gain;
   }

@@ -117,9 +117,9 @@ class Renderer {
   // ---------- depuração: controle de campo x valor, e candidatos de movimento dos bots ----------
   drawValueOverlay(game) {
     const ctx = this.ctx;
-    if (typeof Features === 'undefined' || !Features.pitchControl) return;
-    const pc = Features.pitchControl(game);
-    const GX = pc.cx.length, GY = pc.cy.length, cw = CFG.FIELD_W / GX, ch = CFG.FIELD_H / GY;
+    if (typeof Features === 'undefined' || !Features.pitchControlTT) return;
+    const pc = Features.pitchControlTT(game);
+    const GX = pc.TX, GY = pc.TY, cw = CFG.FIELD_W / GX, ch = CFG.FIELD_H / GY;
     const VM = (typeof VALUE_MAP !== 'undefined') ? VALUE_MAP : null;
     const valueAt = (x, y, dir) => {
       if (!VM) return 0.1;
@@ -130,12 +130,14 @@ class Renderer {
     let vmax = 0.01; if (VM) for (const v of VM.v) vmax = Math.max(vmax, v);
     const total = [0, 0];
     for (let j = 0; j < GY; j++) for (let i = 0; i < GX; i++) {
-      const own = pc.owner[j * GX + i]; if (own < 0) continue;
-      const team = game.players[own].team, dir = team === 0 ? 1 : -1;
-      const v = valueAt(pc.cx[i], pc.cy[j], dir); total[team] += v;
-      const col = team === 0 ? '80,140,255' : '255,110,90';
-      ctx.fillStyle = `rgba(${col},${0.08 + 0.55 * v / vmax})`;
-      ctx.fillRect(pc.cx[i] - cw / 2, pc.cy[j] - ch / 2, cw - 1, ch - 1);
+      const k = j * GX + i, p0 = pc.p0[k];
+      const v0 = valueAt(pc.cx[i], pc.cy[j], 1), v1 = valueAt(pc.cx[i], pc.cy[j], -1);
+      total[0] += p0 * v0; total[1] += (1 - p0) * v1;
+      // cor pelo time dominante, intensidade pela confiança (|p0-0.5|) e pelo valor da célula para esse time
+      const blue = p0 >= 0.5, conf = Math.abs(p0 - 0.5) * 2, v = blue ? v0 : v1;
+      const col = blue ? '80,140,255' : '255,110,90';
+      ctx.fillStyle = `rgba(${col},${0.05 + 0.5 * conf * (0.25 + 0.75 * v / vmax)})`;
+      ctx.fillRect(pc.cx[i] - cw / 2, pc.cy[j] - ch / 2, cw - 0.5, ch - 0.5);
     }
     // candidatos avaliados por cada bot (estilo controle de campo): pontos e ganho de valor
     ctx.font = '11px sans-serif'; ctx.textAlign = 'center';

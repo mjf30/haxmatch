@@ -223,5 +223,33 @@ const Features = (() => {
     return out;
   }
 
-  return { build, SIZE, MAX_MATES, MAX_OPPS, pitchControl };
+  // Controle de campo por tempo de chegada (Spearman / Fernández-Bornn), grade fina 40x23, com velocidade:
+  // t_i(célula) = REACT + |célula - (pos_i + vel_i*REACT)| / SPRINT; controle do time 0 = logística((t1 - t0)/TAU).
+  // Guarda, por célula e por time, o melhor e o segundo melhor tempo (e quem é o melhor), para avaliar
+  // rapidamente "e se o jogador p estivesse em outro lugar". Independente da grade 12x7 da observação da rede.
+  const TX = 40, TY = 23, REACT = 0.2, TAU = 0.3;
+  function pitchControlTT(g) {
+    if (g._pctt && g._pctt.now === g.now && g._pctt.n === g.players.length) return g._pctt;
+    const W2 = CFG.FIELD_W / 2, H2 = CFG.FIELD_H / 2, n = TX * TY;
+    const cx = new Float32Array(TX), cy = new Float32Array(TY);
+    for (let i = 0; i < TX; i++) cx[i] = -W2 + (i + 0.5) * CFG.FIELD_W / TX;
+    for (let j = 0; j < TY; j++) cy[j] = -H2 + (j + 0.5) * CFG.FIELD_H / TY;
+    const t1 = [new Float32Array(n).fill(1e9), new Float32Array(n).fill(1e9)];
+    const t2 = [new Float32Array(n).fill(1e9), new Float32Array(n).fill(1e9)];
+    const who = [new Int16Array(n).fill(-1), new Int16Array(n).fill(-1)];
+    for (const q of g.players) {
+      if (!q.active) continue;
+      const px = q.pos.x + q.vel.x * REACT, py = q.pos.y + q.vel.y * REACT, T = t1[q.team], T2 = t2[q.team], Wq = who[q.team];
+      for (let j = 0; j < TY; j++) for (let i = 0; i < TX; i++) {
+        const k = j * TX + i;
+        const t = REACT + Math.hypot(cx[i] - px, cy[j] - py) / CFG.SPRINT;
+        if (t < T[k]) { T2[k] = T[k]; T[k] = t; Wq[k] = q.id; } else if (t < T2[k]) T2[k] = t;
+      }
+    }
+    const p0 = new Float32Array(n);   // probabilidade de controle do time 0
+    for (let k = 0; k < n; k++) p0[k] = 1 / (1 + Math.exp((t1[0][k] - t1[1][k]) / TAU));
+    g._pctt = { now: g.now, n: g.players.length, TX, TY, cx, cy, t1, t2, who, p0, REACT, TAU };
+    return g._pctt;
+  }
+  return { build, SIZE, MAX_MATES, MAX_OPPS, pitchControl, pitchControlTT };
 })();
