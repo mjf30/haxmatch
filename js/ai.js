@@ -31,17 +31,17 @@ const AI = (() => {
   // width: fator da largura (abertura/ultrapassagem); runners: corredores em profundidade (0..2);
   // compact: quanto o posicionamento sem bola acompanha a bola (compactação na defesa)
   const STYLES = {
-    // decisão (leve): prog/space/margin/share pesos da nota de passe; through/long/switch/cross/passback bônus; carry/carrySpace/hold condução
-    // movimentação (o que define o estilo): supBack/supSide apoio atrás; fwdDist opção à frente; wideY/wideX pontas (largura e altura);
-    //   wideAlways dois pontas sempre; runners corredores; runTrigger quando correr ('final' terço final, 'space' com espaço, 'always');
-    //   gridRadius/gridProg ponto de abertura (raio e peso da progressão); counterpress pressionadores ao perder a bola alta; compact defesa
+    // A decisão com a bola é a mesma para todos (oportunidade clara vence sempre); o estilo só dá bônus pequenos e positivos.
+    // O que define o estilo é a movimentação: vagas de papéis (support apoio, wide ponta, fwd opção curta à frente, runner profundidade),
+    // distâncias (supBack/supSide, fwdDist, wideY/wideX), gatilho das corridas, ponto de abertura (gridRadius/gridProg),
+    // contra-pressão ao perder a bola alta, compactação e forma base (homeWidth/homeAdvance).
     balanced: { prog: 0.5, space: 0.3, margin: 0.2, share: 0.15, through: 0.15, long: -0.03, switch: 0, cross: 0.1, passback: -0.2, carry: 0.55, carrySpace: 380, hold: 0.1,
       supBack: 240, supSide: 120, fwdDist: 280, wideY: 380, wideX: 60, slots: ['support', 'wide', 'runner', 'wide'], runTrigger: 'space', gridRadius: 520, gridProg: 0.5, counterpress: 1, compact: 1.0, homeWidth: 1.0, homeAdvance: 0 },
-    short: { prog: 0.45, space: 0.35, margin: 0.25, share: 0.15, through: 0.1, long: -0.15, switch: -0.05, cross: 0.05, passback: -0.15, carry: 0.45, carrySpace: 450, hold: 0.1,
-      supBack: 160, supSide: 160, fwdDist: 200, wideY: 270, wideX: 100, slots: ['support', 'fwd', 'wide', 'runner'], runTrigger: 'final', gridRadius: 380, gridProg: 0.25, counterpress: 2, compact: 1.3, homeWidth: 0.75, homeAdvance: 0 },
-    long: { prog: 0.55, space: 0.3, margin: 0.2, share: 0.15, through: 0.15, long: 0.1, switch: 0.15, cross: 0.15, passback: -0.2, carry: 0.5, carrySpace: 380, hold: 0.1,
+    short: { prog: 0.5, space: 0.3, margin: 0.2, share: 0.15, through: 0.15, long: -0.03, switch: 0, cross: 0.1, passback: -0.2, carry: 0.55, carrySpace: 380, hold: 0.1,
+      supBack: 160, supSide: 160, fwdDist: 260, wideY: 270, wideX: 100, slots: ['support', 'fwd', 'wide', 'runner'], runTrigger: 'space', gridRadius: 450, gridProg: 0.5, counterpress: 2, compact: 1.15, homeWidth: 0.8, homeAdvance: 60 },
+    long: { prog: 0.5, space: 0.3, margin: 0.2, share: 0.15, through: 0.15, long: 0.05, switch: 0.1, cross: 0.2, passback: -0.2, carry: 0.55, carrySpace: 380, hold: 0.1,
       supBack: 300, supSide: 220, fwdDist: 360, wideY: 480, wideX: 200, slots: ['wide', 'wide', 'runner', 'support'], runTrigger: 'space', gridRadius: 650, gridProg: 0.6, counterpress: 1, compact: 0.9, homeWidth: 1.5, homeAdvance: 60 },
-    direct: { prog: 0.6, space: 0.3, margin: 0.2, share: 0.15, through: 0.25, long: 0.0, switch: 0, cross: 0.1, passback: -0.25, carry: 0.6, carrySpace: 340, hold: 0.08,
+    direct: { prog: 0.5, space: 0.3, margin: 0.2, share: 0.15, through: 0.25, long: -0.03, switch: 0, cross: 0.1, passback: -0.2, carry: 0.6, carrySpace: 380, hold: 0.1,
       supBack: 180, supSide: 140, fwdDist: 320, wideY: 330, wideX: 150, slots: ['runner', 'support', 'runner', 'wide'], runTrigger: 'always', gridRadius: 600, gridProg: 0.7, counterpress: 1, compact: 1.0, homeWidth: 1.0, homeAdvance: 120 },
   };
   function styleOf(p, g) { return (g.styles && STYLES[g.styles[p.team]]) || STYLES.balanced; }
@@ -453,6 +453,9 @@ const AI = (() => {
         }
       }
       let role = roles.get(p) || 'openbest';
+      // oportunidade acima do papel: à frente da bola com espaço atrás da linha e ninguém já correndo -> ataca o espaço
+      if (!['runspace', 'runbox', 'openback', 'overlap'].includes(role) && canRun && (p.pos.x - carrier.pos.x) * dir > 0 &&
+          !Array.from(roles.values()).some((r) => r === 'runspace' || r === 'runbox')) role = 'runspace';
       // aglomeração: companheiro (que não é o portador) a menos de 110 px e não sou o apoio -> abrir no ponto mais livre
       if (role !== 'openback' && c.mates.some((m) => m !== carrier && V.dist(m.pos, p.pos) < 110)) role = 'openbest';
       return role;
