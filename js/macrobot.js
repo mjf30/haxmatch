@@ -5,10 +5,10 @@
 const MacroBot = (() => {
   const SIZES_DEFAULT = [Features.SIZE, 64, AI.MACROS.length];
   const SET = (names) => new Set(names.map((n) => AI.MACROS.indexOf(n)));
-  const CARRIER = SET(['shoot', 'shootq', 'pass', 'passback', 'longpass', 'through', 'switch', 'dribble', 'carryspace', 'hold']);
+  const CARRIER = SET(['shoot', 'shootq', 'pass', 'passback', 'longpass', 'through', 'switch', 'cross', 'dribble', 'carryspace', 'hold']);
   const OFFBALL = SET(['chase', 'defend', 'cover', 'cutlane', 'openfwd', 'openwide', 'overlap', 'runbox', 'runspace', 'openback', 'openbest', 'guardgoal', 'home']);
   const GK = SET(['gk_angle', 'gk_press', 'gk_rush', 'gk_line', 'gk_up']);
-  const KICK = SET(['shoot', 'shootq', 'pass', 'passback', 'longpass', 'through', 'switch']);
+  const KICK = SET(['shoot', 'shootq', 'pass', 'passback', 'longpass', 'through', 'switch', 'cross']);
   // macros válidas na situação (igual a train_gpu/ppo.py macro_mask)
   function allowed(p, g, i) {
     const ball = g.ball.owner === p;

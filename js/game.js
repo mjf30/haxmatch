@@ -43,6 +43,7 @@ function makePlayer(id, team, idx, home, name) {
 class Game {
   constructor(opts = {}) {
     this.teamSize = opts.teamSize || CFG.TEAM_SIZE;
+    this.styles = opts.styles || null;   // estilo dos bots script por time: ['balanced'|'short'|'long'|'direct', ...]
     this.rng = mulberry32(opts.seed || 1);
     this.events = [];
     this.reset();

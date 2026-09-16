@@ -59,7 +59,8 @@
   const showLobby = () => showMenuScreen();
 
   function newGame() {
-    game = new Game({ teamSize, seed });
+    const st = $('botStyle') ? $('botStyle').value : 'balanced';
+    game = new Game({ teamSize, seed, styles: [st, st] });
     remoteQueues.clear(); remoteLast.clear(); remoteNames.clear();
     tick = 0; seq = 0; netEvents = [];
   }
