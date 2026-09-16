@@ -255,7 +255,7 @@ const Features = (() => {
   // A bola percorre a reta a V_BALL; em pontos a cada 60 px, cada adversário tem tempo de chegada (reação + distância
   // projetada / sprint); interceptação no ponto = logística(t_bola - t_adv); chegar = produto dos (1 - interceptação).
   // Global por tick (cache); a mesma grade fina do pitchControlTT. Sem dono da bola: todos 1.
-  const V_BALL = 520;
+  const V_BALL = 700;   // passes fortes/de primeira/com curva: modelo pouco pessimista
   function passMap(g) {
     if (g._pmap && g._pmap.now === g.now && g._pmap.n === g.players.length) return g._pmap;
     const pc = pitchControlTT(g);
@@ -267,13 +267,12 @@ const Features = (() => {
       for (let j = 0; j < pc.TY; j++) for (let i = 0; i < pc.TX; i++) {
         const k = j * pc.TX + i, dx = pc.cx[i] - bx, dy = pc.cy[j] - by, d = Math.hypot(dx, dy);
         if (d < 40) continue;
-        let ok = 1;
+        let ok = 1;   // só o pior ponto da trajetória conta (um adversário claramente na linha), não o produto de todos
         for (let s = 60; s <= d; s += 60) {
           const sx = bx + dx * (s / d), sy = by + dy * (s / d), tb = s / V_BALL;
           let to = Infinity;
           for (const q of opps) { const t = pc.REACT + Math.hypot(q.x - sx, q.y - sy) / CFG.SPRINT; if (t < to) to = t; }
-          ok *= 1 - 1 / (1 + Math.exp((to - tb) / pc.TAU));
-          if (ok < 0.01) break;
+          ok = Math.min(ok, 1 - 1 / (1 + Math.exp((to - tb) / pc.TAU)));
         }
         pm[k] = ok;
       }

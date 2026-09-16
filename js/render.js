@@ -134,9 +134,9 @@ class Renderer {
     const total = [0, 0];
     for (let j = 0; j < GY; j++) for (let i = 0; i < GX; i++) {
       const k = j * GX + i, reach = pm ? pm.p[k] : 1;
-      // controle efetivo: o time com a bola só domina a célula se chega primeiro E o passe chega; o resto é do outro time
-      const p0 = ownerTeam === 0 ? pc.p0[k] * reach : (ownerTeam === 1 ? 1 - (1 - pc.p0[k]) * reach : pc.p0[k]);
-      const v0 = valueAt(pc.cx[i], pc.cy[j], 1), v1 = valueAt(pc.cx[i], pc.cy[j], -1);
+      const p0 = pc.p0[k];   // território: só tempo de chegada
+      const soft = 0.4 + 0.6 * reach;   // alcance do passe como referência de valor (não veto): só no mapa de perigo, para o time com a bola
+      const v0 = valueAt(pc.cx[i], pc.cy[j], 1) * (ownerTeam === 0 ? soft : 1), v1 = valueAt(pc.cx[i], pc.cy[j], -1) * (ownerTeam === 1 ? soft : 1);
       total[0] += p0 * v0; total[1] += (1 - p0) * v1;
       const blue = p0 >= 0.5, conf = Math.abs(p0 - 0.5) * 2, v = blue ? v0 : v1;
       const col = blue ? '80,140,255' : '255,110,90';
@@ -162,7 +162,7 @@ class Renderer {
       if (top.length) { ctx.strokeStyle = 'rgba(255,255,0,0.5)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(p.pos.x, p.pos.y); ctx.lineTo(top[0].x, top[0].y); ctx.stroke(); }
     }
     ctx.fillStyle = '#fff'; ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'left';
-    const label = mode === 1 ? 'TERRITÓRIO efetivo: chegar primeiro x passe chegar (time com a bola); o resto é do outro' : 'PERIGO: território efetivo x valor (chance de gol em 8 s)';
+    const label = mode === 1 ? 'TERRITÓRIO: controle por tempo de chegada (com velocidade)' : 'PERIGO: território x valor (gol em 8 s) x alcance do passe (suave)';
     ctx.fillText(`${label}  ·  valor alcançável  azul ${(total[0] * 100).toFixed(1)}  vermelho ${(total[1] * 100).toFixed(1)}   (V alterna / desliga)`, -CFG.FIELD_W / 2 + 10, -CFG.FIELD_H / 2 - 14);
   }
 
