@@ -251,5 +251,35 @@ const Features = (() => {
     g._pctt = { now: g.now, n: g.players.length, TX, TY, cx, cy, t1, t2, who, p0, REACT, TAU };
     return g._pctt;
   }
-  return { build, SIZE, MAX_MATES, MAX_OPPS, pitchControl, pitchControlTT };
+  // Mapa de passe: P(a bola chega à célula), a partir da posição atual da bola, contra o time que não tem a posse.
+  // A bola percorre a reta a V_BALL; em pontos a cada 60 px, cada adversário tem tempo de chegada (reação + distância
+  // projetada / sprint); interceptação no ponto = logística(t_bola - t_adv); chegar = produto dos (1 - interceptação).
+  // Global por tick (cache); a mesma grade fina do pitchControlTT. Sem dono da bola: todos 1.
+  const V_BALL = 520;
+  function passMap(g) {
+    if (g._pmap && g._pmap.now === g.now && g._pmap.n === g.players.length) return g._pmap;
+    const pc = pitchControlTT(g);
+    const n = pc.TX * pc.TY, pm = new Float32Array(n).fill(1);
+    const o = g.ball.owner;
+    if (o) {
+      const opps = g.players.filter((q) => q.active && q.team !== o.team).map((q) => ({ x: q.pos.x + q.vel.x * pc.REACT, y: q.pos.y + q.vel.y * pc.REACT }));
+      const bx = g.ball.pos.x, by = g.ball.pos.y;
+      for (let j = 0; j < pc.TY; j++) for (let i = 0; i < pc.TX; i++) {
+        const k = j * pc.TX + i, dx = pc.cx[i] - bx, dy = pc.cy[j] - by, d = Math.hypot(dx, dy);
+        if (d < 40) continue;
+        let ok = 1;
+        for (let s = 60; s <= d; s += 60) {
+          const sx = bx + dx * (s / d), sy = by + dy * (s / d), tb = s / V_BALL;
+          let to = Infinity;
+          for (const q of opps) { const t = pc.REACT + Math.hypot(q.x - sx, q.y - sy) / CFG.SPRINT; if (t < to) to = t; }
+          ok *= 1 - 1 / (1 + Math.exp((to - tb) / pc.TAU));
+          if (ok < 0.01) break;
+        }
+        pm[k] = ok;
+      }
+    }
+    g._pmap = { now: g.now, n: g.players.length, p: pm, owner: o ? o.id : -1 };
+    return g._pmap;
+  }
+  return { build, SIZE, MAX_MATES, MAX_OPPS, pitchControl, pitchControlTT, passMap };
 })();

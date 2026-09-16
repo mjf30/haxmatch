@@ -130,6 +130,8 @@ const AI = (() => {
     if (!pc) return 0;
     const dir = c.dir, team = p.team, opp = 1 - team;
     const T1 = pc.t1[team], T2 = pc.t2[team], Wq = pc.who[team], TO = pc.t1[opp];
+    // alcançabilidade por passe: só conta quando o meu time tem a bola (mapa a partir da posição dela)
+    const pm = (c.ball.owner && c.ball.owner.team === team && Features.passMap) ? Features.passMap(g).p : null;
     let gain = 0;
     for (let j = 0; j < pc.TY; j++) for (let i = 0; i < pc.TX; i++) {
       const x = pc.cx[i], y = pc.cy[j];
@@ -142,7 +144,7 @@ const AI = (() => {
       const tRest = Wq[k] === p.id ? T2[k] : T1[k];
       const tNew = Math.min(tRest, pc.REACT + dNew / CFG.SPRINT);
       const pAfter = 1 / (1 + Math.exp((tNew - TO[k]) / pc.TAU));
-      gain += (pAfter - pBefore) * valueAt({ x, y }, dir);
+      gain += (pAfter - pBefore) * valueAt({ x, y }, dir) * (pm ? (0.15 + 0.85 * pm[k]) : 1);
     }
     return gain;
   }

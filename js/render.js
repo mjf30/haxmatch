@@ -119,6 +119,7 @@ class Renderer {
     const ctx = this.ctx;
     if (typeof Features === 'undefined' || !Features.pitchControlTT) return;
     const pc = Features.pitchControlTT(game);
+    const pm = Features.passMap ? Features.passMap(game) : null;
     const GX = pc.TX, GY = pc.TY, cw = CFG.FIELD_W / GX, ch = CFG.FIELD_H / GY;
     const VM = (typeof VALUE_MAP !== 'undefined') ? VALUE_MAP : null;
     const valueAt = (x, y, dir) => {
@@ -128,15 +129,21 @@ class Renderer {
       return VM.v[j * VM.GX + i];
     };
     let vmax = 0.01; if (VM) for (const v of VM.v) vmax = Math.max(vmax, v);
+    const mode = this.showValue;   // 1 = território (controle + alcance do passe), 2 = perigo (controle x valor x passe)
+    const ownerTeam = game.ball.owner ? game.ball.owner.team : -1;
     const total = [0, 0];
     for (let j = 0; j < GY; j++) for (let i = 0; i < GX; i++) {
       const k = j * GX + i, p0 = pc.p0[k];
       const v0 = valueAt(pc.cx[i], pc.cy[j], 1), v1 = valueAt(pc.cx[i], pc.cy[j], -1);
-      total[0] += p0 * v0; total[1] += (1 - p0) * v1;
-      // cor pelo time dominante, intensidade pela confiança (|p0-0.5|) e pelo valor da célula para esse time
+      const reach = pm ? pm.p[k] : 1;
+      total[0] += p0 * v0 * (ownerTeam === 0 ? reach : 1); total[1] += (1 - p0) * v1 * (ownerTeam === 1 ? reach : 1);
       const blue = p0 >= 0.5, conf = Math.abs(p0 - 0.5) * 2, v = blue ? v0 : v1;
       const col = blue ? '80,140,255' : '255,110,90';
-      ctx.fillStyle = `rgba(${col},${0.05 + 0.5 * conf * (0.25 + 0.75 * v / vmax)})`;
+      const isOwnerTeam = (blue ? 0 : 1) === ownerTeam;
+      let a;
+      if (mode === 1) a = 0.06 + 0.5 * conf * (isOwnerTeam ? (0.3 + 0.7 * reach) : 0.6);
+      else a = 0.04 + 0.6 * conf * (v / vmax) * (isOwnerTeam ? (0.2 + 0.8 * reach) : 0.5);
+      ctx.fillStyle = `rgba(${col},${a})`;
       ctx.fillRect(pc.cx[i] - cw / 2, pc.cy[j] - ch / 2, cw - 0.5, ch - 0.5);
     }
     // candidatos avaliados por cada bot (estilo controle de campo): pontos e ganho de valor
@@ -155,7 +162,8 @@ class Renderer {
       if (top.length) { ctx.strokeStyle = 'rgba(255,255,0,0.5)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(p.pos.x, p.pos.y); ctx.lineTo(top[0].x, top[0].y); ctx.stroke(); }
     }
     ctx.fillStyle = '#fff'; ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'left';
-    ctx.fillText(`valor controlado  azul ${(total[0] * 100).toFixed(1)}  ·  vermelho ${(total[1] * 100).toFixed(1)}   (V desliga)`, -CFG.FIELD_W / 2 + 10, -CFG.FIELD_H / 2 - 14);
+    const label = mode === 1 ? 'TERRITÓRIO: controle por tempo de chegada, brilho = chance de o passe chegar' : 'PERIGO: controle x valor (chance de gol em 8 s) x chance de o passe chegar';
+    ctx.fillText(`${label}  ·  valor alcançável  azul ${(total[0] * 100).toFixed(1)}  vermelho ${(total[1] * 100).toFixed(1)}   (V alterna / desliga)`, -CFG.FIELD_W / 2 + 10, -CFG.FIELD_H / 2 - 14);
   }
 
   // ---------- jogadores ----------
