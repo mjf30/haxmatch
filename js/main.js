@@ -227,6 +227,7 @@
       if (code === 'KeyQ' && mode === 'solo') switchPlayer();
       if (code === 'KeyR' && mode !== 'guest') { game.reset(); restoreHumans(); }
       if (code === 'KeyH') renderer.showHelp = !renderer.showHelp;
+      if (code === 'KeyV') renderer.showValue = !renderer.showValue;   // camada: controle de campo x valor (EPV) e candidatos dos bots
       if (code === 'KeyP' && mode === 'solo') paused = !paused;
       if (code === 'Enter') toggleFullscreen();
       if (code === 'KeyT' && renderer.showScoreboard) requestTeamSwitch();

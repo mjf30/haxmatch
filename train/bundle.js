@@ -5,7 +5,7 @@ const path = require('path');
 const vm = require('vm');
 
 function loadSim() {
-  const files = ['config.js', 'vec.js', 'input.js', 'game.js', 'ai.js', 'features.js', 'nn.js', 'nnbot.js', 'macrobot.js', 'rawbot.js'];
+  const files = ['config.js', 'vec.js', 'input.js', 'game.js', 'value_map.js', 'ai.js', 'features.js', 'nn.js', 'nnbot.js', 'macrobot.js', 'rawbot.js'];
   const code = files.map((f) => fs.readFileSync(path.join(__dirname, '..', 'js', f), 'utf8').replace(/^'use strict';/, '')).join('\n')
     + '\nthis.__exports = { Game, AI, CFG, V, emptyInput, Features, NN, NNBot, MacroBot, RawBot };';
   const sandbox = { console, Math, Infinity, Date, Float32Array };

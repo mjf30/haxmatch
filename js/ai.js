@@ -41,6 +41,8 @@ const AI = (() => {
       supBack: 160, supSide: 160, fwdDist: 260, wideY: 270, wideX: 100, slots: ['support', 'fwd', 'wide', 'runner'], runTrigger: 'space', gridRadius: 450, gridProg: 0.5, counterpress: 2, compact: 1.0, homeWidth: 0.9, homeAdvance: 60 },
     long: { prog: 0.5, space: 0.3, margin: 0.2, share: 0.15, through: 0.15, long: 0.05, switch: 0.1, cross: 0.2, passback: -0.2, carry: 0.55, carrySpace: 380, hold: 0.05,
       supBack: 300, supSide: 220, fwdDist: 360, wideY: 480, wideX: 200, slots: ['wide', 'wide', 'runner', 'support'], runTrigger: 'space', gridRadius: 650, gridProg: 0.6, counterpress: 1, compact: 0.9, homeWidth: 1.5, homeAdvance: 60 },
+    control: { prog: 0.5, space: 0.3, margin: 0.2, share: 0.2, through: 0.15, long: -0.03, switch: 0.05, cross: 0.1, passback: -0.2, carry: 0.55, carrySpace: 380, hold: 0.05,
+      supBack: 220, supSide: 140, fwdDist: 300, wideY: 380, wideX: 80, slots: ['support', 'value', 'value', 'value'], runTrigger: 'space', gridRadius: 600, gridProg: 0.4, counterpress: 1, compact: 1.0, homeWidth: 1.05, homeAdvance: 30, valueMove: true },
     direct: { prog: 0.5, space: 0.3, margin: 0.2, share: 0.15, through: 0.25, long: -0.03, switch: 0, cross: 0.1, passback: -0.2, carry: 0.6, carrySpace: 380, hold: 0.05,
       supBack: 180, supSide: 140, fwdDist: 320, wideY: 330, wideX: 150, slots: ['runner', 'support', 'runner', 'wide'], runTrigger: 'always', gridRadius: 600, gridProg: 0.7, counterpress: 1, compact: 1.0, homeWidth: 1.0, homeAdvance: 120 },
   };
@@ -112,6 +114,36 @@ const AI = (() => {
 
   // quão livre está um ponto para receber: distância ao adversário mais próximo,
   // linha de passe limpa a partir da bola, e longe de companheiros (não aglomerar)
+  // valor de uma posição do campo (P(gol do time com a bola ali nos próximos 8 s), mapa estimado em js/value_map.js)
+  function valueAt(pt, dir) {
+    if (typeof VALUE_MAP === 'undefined') { const x = pt.x * dir; return Math.max(0, (x + CFG.FIELD_W / 2) / CFG.FIELD_W) ** 2 * 0.2; }
+    const GX = VALUE_MAP.GX, GY = VALUE_MAP.GY;
+    const i = V.clamp(Math.floor((pt.x * dir + CFG.FIELD_W / 2) / (CFG.FIELD_W / GX)), 0, GX - 1);
+    const j = V.clamp(Math.floor((pt.y + CFG.FIELD_H / 2) / (CFG.FIELD_H / GY)), 0, GY - 1);
+    return VALUE_MAP.v[j * GX + i];
+  }
+  // variação do valor controlado pelo time se p estivesse em pt (EPV: soma de valor(célula) x controle(célula)).
+  // Recalcula só as células perto da origem e do destino: a célula muda de dono se p era/passa a ser o mais perto.
+  function valueGain(pt, p, g, c) {
+    const pc = (typeof Features !== 'undefined' && Features.pitchControl) ? Features.pitchControl(g) : null;
+    if (!pc) return 0;
+    const GX = pc.cx.length, GY = pc.cy.length, dir = c.dir;
+    const others = g.players.filter((q) => q.active && q !== p);
+    let gain = 0;
+    for (let j = 0; j < GY; j++) for (let i = 0; i < GX; i++) {
+      const cx = pc.cx[i], cy = pc.cy[j];
+      const dNew = Math.hypot(cx - pt.x, cy - pt.y), dOld = Math.hypot(cx - p.pos.x, cy - p.pos.y);
+      if (dNew > 320 && dOld > 320) continue;
+      const own = pc.owner[j * GX + i];
+      const beforeMine = own >= 0 && g.players[own].team === p.team ? 1 : 0;
+      // depois: mais perto entre os outros, ou eu em pt
+      let best = null, bd = Infinity;
+      for (const q of others) { const d = Math.hypot(q.pos.x - cx, q.pos.y - cy); if (d < bd) { bd = d; best = q; } }
+      const afterMine = (dNew < bd) ? 1 : (best && best.team === p.team ? 1 : 0);
+      if (afterMine !== beforeMine) gain += (afterMine - beforeMine) * valueAt({ x: cx, y: cy }, dir);
+    }
+    return gain;
+  }
   // ganho de controle de campo (Voronoi) se eu estivesse em pt: células a até 260 px que passariam a ser minhas;
   // tomar do adversário vale cheio, redistribuir de companheiro vale pouco (não adianta ficar em cima dele)
   function controlGain(pt, p, g) {
@@ -252,6 +284,7 @@ const AI = (() => {
   // melhor ponto para abrir: células da grade num raio, livres, com linha de passe e à frente
   function bestGridPoint(p, g, c, radius) {
     const anchor = c.ball.owner ? c.ball.owner.pos : c.ball.pos;
+    if (styleOf(p, g).valueMove) { p.ai.cands = []; p.ai.candsT = p.ai.t; }
     let best = null, bs = -Infinity;
     const W2 = CFG.FIELD_W / 2, H2 = CFG.FIELD_H / 2;
     for (let i = 0; i < 12; i++) for (let j = 0; j < 7; j++) {
@@ -261,7 +294,11 @@ const AI = (() => {
       if (c.teamHasKeeper && g.inBoxPt(pt, p.team)) continue;
       const da = V.dist(pt, anchor);
       if (da < 120 || da > 800) continue;
-      const s = openness(pt, c, p, g) + styleOf(p, g).gridProg * (pt.x - anchor.x) * c.dir - 0.15 * dp;   // progressão pesa conforme o estilo
+      const S = styleOf(p, g);
+      const s = S.valueMove
+        ? 4000 * valueGain(pt, p, g, c) + 0.3 * openness(pt, c, p, g) - 0.1 * dp   // controle de campo ponderado pelo valor (EPV)
+        : openness(pt, c, p, g) + S.gridProg * (pt.x - anchor.x) * c.dir - 0.15 * dp;   // progressão pesa conforme o estilo
+      if (S.valueMove) { p.ai.cands = p.ai.cands || []; p.ai.cands.push({ x: pt.x, y: pt.y, s, v: valueGain(pt, p, g, c) }); }
       if (s > bs) { bs = s; best = pt; }
     }
     return best || homePos(p, g, c);
@@ -469,6 +506,8 @@ const AI = (() => {
           const ahead = fr.filter((m) => (m.pos.x - carrier.pos.x) * dir > 40);
           const list = (ahead.length ? ahead : fr).slice().sort((a, b) => V.dist(a.pos, carrier.pos) - V.dist(b.pos, carrier.pos));
           roles.set(list[0], 'openfwd');
+        } else if (slot === 'value') {   // controle de campo: qualquer livre; a posição vem do ganho de valor (openbest com valueMove)
+          roles.set(fr[0], 'openbest');
         } else if (slot === 'runner') {   // profundidade: o mais avançado
           const adv = fr.slice().sort((a, b) => (b.pos.x - a.pos.x) * dir);
           roles.set(adv[0], runnerRole);

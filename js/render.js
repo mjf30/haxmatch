@@ -51,6 +51,7 @@ class Renderer {
     ctx.scale(this.cam.zoom, this.cam.zoom);
     ctx.translate(-this.cam.x, -this.cam.y);
     this.drawPitch();
+    if (this.showValue) this.drawValueOverlay(game);
     for (const p of game.players) if (p.active && (p.fallen > 0 || p.getup > 0)) this.drawPlayer(game, p, human);
     for (const p of game.players) if (p.active && !(p.fallen > 0 || p.getup > 0)) this.drawPlayer(game, p, human);
     if (human) this.drawAim(game, human);
@@ -111,6 +112,48 @@ class Renderer {
     ctx.strokeStyle = 'rgba(120,200,255,0.25)';
     ctx.lineWidth = 3;
     ctx.stroke();
+  }
+
+  // ---------- depuração: controle de campo x valor, e candidatos de movimento dos bots ----------
+  drawValueOverlay(game) {
+    const ctx = this.ctx;
+    if (typeof Features === 'undefined' || !Features.pitchControl) return;
+    const pc = Features.pitchControl(game);
+    const GX = pc.cx.length, GY = pc.cy.length, cw = CFG.FIELD_W / GX, ch = CFG.FIELD_H / GY;
+    const VM = (typeof VALUE_MAP !== 'undefined') ? VALUE_MAP : null;
+    const valueAt = (x, y, dir) => {
+      if (!VM) return 0.1;
+      const i = Math.min(VM.GX - 1, Math.max(0, Math.floor((x * dir + CFG.FIELD_W / 2) / (CFG.FIELD_W / VM.GX))));
+      const j = Math.min(VM.GY - 1, Math.max(0, Math.floor((y + CFG.FIELD_H / 2) / (CFG.FIELD_H / VM.GY))));
+      return VM.v[j * VM.GX + i];
+    };
+    let vmax = 0.01; if (VM) for (const v of VM.v) vmax = Math.max(vmax, v);
+    const total = [0, 0];
+    for (let j = 0; j < GY; j++) for (let i = 0; i < GX; i++) {
+      const own = pc.owner[j * GX + i]; if (own < 0) continue;
+      const team = game.players[own].team, dir = team === 0 ? 1 : -1;
+      const v = valueAt(pc.cx[i], pc.cy[j], dir); total[team] += v;
+      const col = team === 0 ? '80,140,255' : '255,110,90';
+      ctx.fillStyle = `rgba(${col},${0.08 + 0.55 * v / vmax})`;
+      ctx.fillRect(pc.cx[i] - cw / 2, pc.cy[j] - ch / 2, cw - 1, ch - 1);
+    }
+    // candidatos avaliados por cada bot (estilo controle de campo): pontos e ganho de valor
+    ctx.font = '11px sans-serif'; ctx.textAlign = 'center';
+    for (const p of game.players) {
+      if (!p.active || !p.ai || !p.ai.cands || !p.ai.cands.length) continue;
+      const cands = p.ai.cands.slice().sort((a, b) => b.s - a.s);
+      const top = cands.slice(0, 6);
+      for (let k = 0; k < top.length; k++) {
+        const cnd = top[k];
+        ctx.fillStyle = k === 0 ? 'rgba(255,255,0,0.9)' : 'rgba(255,255,255,0.45)';
+        ctx.beginPath(); ctx.arc(cnd.x, cnd.y, k === 0 ? 7 : 4, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = k === 0 ? '#ff0' : 'rgba(255,255,255,0.7)';
+        ctx.fillText((cnd.v >= 0 ? '+' : '') + (cnd.v * 100).toFixed(1), cnd.x, cnd.y - 9);
+      }
+      if (top.length) { ctx.strokeStyle = 'rgba(255,255,0,0.5)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(p.pos.x, p.pos.y); ctx.lineTo(top[0].x, top[0].y); ctx.stroke(); }
+    }
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'left';
+    ctx.fillText(`valor controlado  azul ${(total[0] * 100).toFixed(1)}  ·  vermelho ${(total[1] * 100).toFixed(1)}   (V desliga)`, -CFG.FIELD_W / 2 + 10, -CFG.FIELD_H / 2 - 14);
   }
 
   // ---------- jogadores ----------
