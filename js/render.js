@@ -43,7 +43,7 @@ class Renderer {
   draw(game, human, dt) {
     const ctx = this.ctx;
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    ctx.fillStyle = '#1b2a1c';
+    ctx.fillStyle = this.showValue ? '#ffffff' : '#1b2a1c';   // na camada de análise, fundo branco e linhas pretas
     ctx.fillRect(0, 0, this.w, this.h);
 
     ctx.save();
@@ -66,21 +66,25 @@ class Renderer {
   drawPitch() {
     const ctx = this.ctx;
     const W2 = CFG.FIELD_W / 2, H2 = CFG.FIELD_H / 2;
-    // grama com listras
-    ctx.fillStyle = '#3f8f3f';
+    const analysis = !!this.showValue;
+    const line = analysis ? 'rgba(0,0,0,0.9)' : 'rgba(255,255,255,0.85)';
+    // grama com listras (ou branco na camada de análise)
+    ctx.fillStyle = analysis ? '#ffffff' : '#3f8f3f';
     ctx.fillRect(-W2 - CFG.GOAL_D - 40, -H2 - 40, CFG.FIELD_W + 2 * CFG.GOAL_D + 80, CFG.FIELD_H + 80);
-    const stripes = 14, sw = CFG.FIELD_W / stripes;
-    for (let i = 0; i < stripes; i++) {
-      ctx.fillStyle = i % 2 ? '#3d883d' : '#459945';
-      ctx.fillRect(-W2 + i * sw, -H2, sw, CFG.FIELD_H);
+    if (!analysis) {
+      const stripes = 14, sw = CFG.FIELD_W / stripes;
+      for (let i = 0; i < stripes; i++) {
+        ctx.fillStyle = i % 2 ? '#3d883d' : '#459945';
+        ctx.fillRect(-W2 + i * sw, -H2, sw, CFG.FIELD_H);
+      }
     }
     // linhas
-    ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+    ctx.strokeStyle = line;
     ctx.lineWidth = 3;
     ctx.strokeRect(-W2, -H2, CFG.FIELD_W, CFG.FIELD_H);
     ctx.beginPath(); ctx.moveTo(0, -H2); ctx.lineTo(0, H2); ctx.stroke();
     ctx.beginPath(); ctx.arc(0, 0, CFG.FIELD_H * 0.11, 0, Math.PI * 2); ctx.stroke();
-    ctx.beginPath(); ctx.arc(0, 0, 4, 0, Math.PI * 2); ctx.fillStyle = '#fff'; ctx.fill();
+    ctx.beginPath(); ctx.arc(0, 0, 4, 0, Math.PI * 2); ctx.fillStyle = analysis ? '#000' : '#fff'; ctx.fill();
     for (const s of [-1, 1]) {
       const x0 = s * W2, x1 = s * (W2 - CFG.BOX_W);
       ctx.beginPath();
@@ -89,16 +93,16 @@ class Renderer {
       ctx.beginPath(); ctx.arc(s * (W2 - CFG.BOX_W + 60), 0, 4, 0, Math.PI * 2); ctx.fill();
       // gol: rede
       const gx = s > 0 ? W2 : -W2 - CFG.GOAL_D;
-      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.fillStyle = analysis ? 'rgba(0,0,0,0.08)' : 'rgba(0,0,0,0.35)';
       ctx.fillRect(gx, -CFG.GOAL_W / 2, CFG.GOAL_D, CFG.GOAL_W);
-      ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+      ctx.strokeStyle = analysis ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.35)';
       ctx.lineWidth = 1;
       for (let y = -CFG.GOAL_W / 2; y <= CFG.GOAL_W / 2; y += 12) { ctx.beginPath(); ctx.moveTo(gx, y); ctx.lineTo(gx + CFG.GOAL_D, y); ctx.stroke(); }
       for (let x = gx; x <= gx + CFG.GOAL_D; x += 12) { ctx.beginPath(); ctx.moveTo(x, -CFG.GOAL_W / 2); ctx.lineTo(x, CFG.GOAL_W / 2); ctx.stroke(); }
-      ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 3;
+      ctx.strokeStyle = line; ctx.lineWidth = 3;
       ctx.strokeRect(gx, -CFG.GOAL_W / 2, CFG.GOAL_D, CFG.GOAL_W);
       // traves
-      ctx.fillStyle = '#eee';
+      ctx.fillStyle = analysis ? '#000' : '#eee';
       for (const sy of [-1, 1]) { ctx.beginPath(); ctx.arc(s * W2, sy * CFG.GOAL_W / 2, CFG.POST_R, 0, Math.PI * 2); ctx.fill(); }
     }
     // paredes
@@ -109,7 +113,7 @@ class Renderer {
     ctx.moveTo(W2, CFG.GOAL_W / 2); ctx.lineTo(W2, H2); ctx.lineTo(-W2, H2); ctx.lineTo(-W2, CFG.GOAL_W / 2);
     ctx.moveTo(-W2, -CFG.GOAL_W / 2); ctx.lineTo(-W2, -H2);
     ctx.stroke();
-    ctx.strokeStyle = 'rgba(120,200,255,0.25)';
+    ctx.strokeStyle = analysis ? 'rgba(0,0,0,0.6)' : 'rgba(120,200,255,0.25)';
     ctx.lineWidth = 3;
     ctx.stroke();
   }
@@ -152,14 +156,14 @@ class Renderer {
       const top = cands.slice(0, 6);
       for (let k = 0; k < top.length; k++) {
         const cnd = top[k];
-        ctx.fillStyle = k === 0 ? 'rgba(255,255,0,0.9)' : 'rgba(255,255,255,0.45)';
+        ctx.fillStyle = k === 0 ? 'rgba(255,200,0,0.95)' : 'rgba(0,0,0,0.35)';
         ctx.beginPath(); ctx.arc(cnd.x, cnd.y, k === 0 ? 7 : 4, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = k === 0 ? '#ff0' : 'rgba(255,255,255,0.7)';
+        ctx.fillStyle = k === 0 ? '#a06000' : 'rgba(0,0,0,0.7)';
         ctx.fillText((cnd.v >= 0 ? '+' : '') + (cnd.v * 100).toFixed(1), cnd.x, cnd.y - 9);
       }
       if (top.length) { ctx.strokeStyle = 'rgba(255,255,0,0.5)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(p.pos.x, p.pos.y); ctx.lineTo(top[0].x, top[0].y); ctx.stroke(); }
     }
-    ctx.fillStyle = '#fff'; ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'left';
+    ctx.fillStyle = '#000'; ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'left';
     const label = mode === 1 ? 'TERRITÓRIO: quem chega antes, relativo ao tempo mínimo da bola (com velocidade)' : 'PERIGO: território x valor (chance de gol em 8 s) = potencial da jogada';
     ctx.fillText(`${label}  ·  valor alcançável  azul ${(total[0] * 100).toFixed(1)}  vermelho ${(total[1] * 100).toFixed(1)}   (V alterna / desliga)`, -CFG.FIELD_W / 2 + 10, -CFG.FIELD_H / 2 - 14);
   }
