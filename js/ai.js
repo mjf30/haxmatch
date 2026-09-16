@@ -130,8 +130,6 @@ const AI = (() => {
     if (!pc) return 0;
     const dir = c.dir, team = p.team, opp = 1 - team;
     const T1 = pc.t1[team], T2 = pc.t2[team], Wq = pc.who[team], TO = pc.t1[opp];
-    // alcançabilidade por passe: só conta quando o meu time tem a bola (mapa a partir da posição dela)
-    const pm = (c.ball.owner && c.ball.owner.team === team && Features.passMap) ? Features.passMap(g).p : null;
     let gain = 0;
     for (let j = 0; j < pc.TY; j++) for (let i = 0; i < pc.TX; i++) {
       const x = pc.cx[i], y = pc.cy[j];
@@ -142,9 +140,9 @@ const AI = (() => {
       const pBefore = team === 0 ? before : 1 - before;
       // melhor tempo do meu time sem mim, e com "eu" em pt
       const tRest = Wq[k] === p.id ? T2[k] : T1[k];
-      const tNew = Math.min(tRest, pc.REACT + dNew / CFG.SPRINT);
+      const tNew = Math.min(tRest, Math.max(0, pc.REACT + dNew / CFG.SPRINT - pc.tb[k]));   // tempo efetivo (atraso em relação à bola)
       const pAfter = 1 / (1 + Math.exp((tNew - TO[k]) / pc.TAU));
-      gain += (pAfter - pBefore) * valueAt({ x, y }, dir) * (pm ? (0.4 + 0.6 * pm[k]) : 1);   // alcance do passe como referência, não veto
+      gain += (pAfter - pBefore) * valueAt({ x, y }, dir);   // potencial da jogada; se o passe é possível, é decisão do portador
     }
     return gain;
   }
