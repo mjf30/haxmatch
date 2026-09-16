@@ -26,7 +26,7 @@
   const nnKind = (typeof NN_WEIGHTS !== 'undefined') ? NN_WEIGHTS.kind : null;
   const rawPolicy = (typeof NN_RAW_WEIGHTS !== 'undefined') ? RawBot.fromExport(NN_RAW_WEIGHTS) : null;
   const macroPpoPolicy = (typeof NN_MACRO_PPO !== 'undefined') ? MacroBot.fromExport(NN_MACRO_PPO) : null;
-  const controlPolicy = (typeof NN_CONTROL !== 'undefined') ? MacroBot.fromExport(NN_CONTROL) : null;
+  const controlPolicy = (typeof NN_GUIDED !== 'undefined') ? MacroBot.fromExport(NN_GUIDED) : null;   // híbrido PPO guiado pelo script
   for (const [k, pol] of [['nn_ppo', macroPpoPolicy], ['nn_zero', controlPolicy]]) if (!pol) { const o = $('botKind').querySelector(`option[value="${k}"]`); if (o) o.disabled = true; }
   if (!rawPolicy) { const o = $('botKind').querySelector('option[value="raw"]'); if (o) { o.disabled = true; o.textContent = 'rede PPO (sem pesos)'; } }
   if (!nnPolicy) { const o = $('botKind').querySelector('option[value="nn"]'); if (o) { o.disabled = true; o.textContent = 'rede neural (sem pesos)'; } }
