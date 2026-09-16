@@ -154,7 +154,7 @@ def main():
     global SKIP
     ap = argparse.ArgumentParser()
     ap.add_argument('--envs', type=int, default=1024); ap.add_argument('--iters', type=int, default=2000)
-    ap.add_argument('--team', type=int, default=4); ap.add_argument('--seconds', type=float, default=90)
+    ap.add_argument('--team', type=str, default='4'); ap.add_argument('--seconds', type=float, default=90)   # tamanhos de time, ex.: 3,4,5 (um sim por tamanho, mesma rede)
     ap.add_argument('--rollout', type=int, default=64); ap.add_argument('--epochs', type=int, default=3)
     ap.add_argument('--minibatch', type=int, default=32768); ap.add_argument('--lr', type=float, default=3e-4)
     ap.add_argument('--gamma', type=float, default=0.995); ap.add_argument('--lam', type=float, default=0.95)
@@ -185,13 +185,20 @@ def main():
     args = ap.parse_args()
     dev = torch.device('cuda')
     torch.manual_seed(args.seed)
-    B, T = args.envs, args.team
-    sim = TorchSim(B, T, device='cuda', seconds=args.seconds, seed=args.seed)
-    P = sim.P
+    teams = [int(x) for x in str(args.team).split(',')]
+    Bw = max(1, args.envs // len(teams))
+    class World: pass
+    worlds = []
+    for wi, T in enumerate(teams):   # um sim por tamanho de time; a mesma rede joga em todos
+        W = World(); W.T = T; W.B = Bw
+        W.sim = TorchSim(Bw, T, device='cuda', seconds=args.seconds, seed=args.seed + wi)
+        W.P = W.sim.P
+        W.ai = AT.ScriptAI(W.sim)   # execução das macros (híbrido) e script adversário
+        worlds.append(W)
+    B = args.envs; T = args.team
     pol = Policy(args.policy, args.hid or None, args.depth or None).to(dev)
     if args.init_js and args.policy == 'macro':
         pol.load_js_weights(load_js_json(args.init_js)['w']); print('política macro inicializada de', args.init_js)
-    ai = AT.ScriptAI(sim)   # execução das macros (híbrido) e script adversário
     opt = torch.optim.Adam(pol.parameters(), lr=args.lr, eps=1e-5)
     it0 = 0
     if args.resume and os.path.exists(args.resume):
@@ -201,9 +208,6 @@ def main():
         it0 = ck.get('it', 0)
         print('retomando de', args.resume, 'iteração', it0)
     league = []                                   # políticas congeladas (state_dicts)
-    # quais partidas usam oponente da liga no time 1 (essas amostras do time 1 não treinam)
-    leagueEnv = torch.zeros(B, dtype=torch.bool, device=dev)
-    leagueIdx = torch.zeros(B, dtype=torch.long, device=dev)
     oppPols = []
     nFixed = 0
     if args.league_init:
@@ -213,41 +217,49 @@ def main():
             for p_ in snap.parameters(): p_.requires_grad_(False)
             league.append(snap.state_dict()); oppPols.append(snap); nFixed += 1
             print('liga: adversário fixo', path, 'iteração', ckl.get('it'))
-    team1 = (sim.team == 1).view(1, P).expand(B, P)
     SKIP = args.skip
     ckpt = args.ckpt or os.path.join(os.path.dirname(__file__), 'ckpt_sanity.pt' if (args.sanity or args.sanity2) else 'ckpt.pt')
     outjs = args.out or os.path.join(os.path.dirname(__file__), '..', 'js', 'nn_raw_weights.js') if args.policy == 'raw' else (args.out or os.path.join(os.path.dirname(__file__), 'macro_ppo_weights.js'))
-    scriptEnv = torch.zeros(B, dtype=torch.bool, device=dev)   # partidas com o script no time 1
     # estatísticas
     stat = dict(goals=0.0, matches=0.0, shots=0.0, control=0.0, passes=0.0, passOk=0.0, steps=0)
-    prevScore = sim.score.clone()
-    passTick = torch.full((B,), -1e9, device=dev); passer = torch.zeros(B, dtype=torch.long, device=dev); tick = 0
-    prevDist = (sim.pos - sim.bpos.view(B, 1, 2)).norm(dim=-1)   # para o shaping de aproximação
-    possStreak = torch.zeros(B, device=dev)                    # ticks seguidos com a bola no mesmo time
-    lastKickTeam = torch.full((B,), -1, dtype=torch.long, device=dev); lastKickTick = torch.full((B,), -1e9, device=dev)
     W2 = CFG['FIELD_W'] / 2
-    # cenários sintéticos por partida: 0 partida, 1 finalização, 2 construção; scenT = tempo restante do episódio
-    scen = torch.zeros(B, dtype=torch.long, device=dev); scenT = torch.zeros(B, device=dev)
     cur = {'scale': 1.0}
-    def assign(idx):
+    def assign_scen(W, idx):
+        """sorteia o cenário (0 partida, 1 finalização, 2 construção) das partidas idx do mundo W e monta a cena"""
         n = idx.numel()
         if n == 0: return
         fA, fB = args.attack * cur['scale'], args.build * cur['scale']
         rr = torch.rand(n, device=dev)
         k = torch.where(rr < fA, 1, torch.where(rr < fA + fB, 2, 0))
-        scen[idx] = k; scenT[idx] = torch.where(k == 1, 8.0, torch.where(k == 2, 15.0, 0.0))
-        s = k > 0
-        if s.any():
-            att = (torch.rand(int(s.sum()), device=dev) < 0.5).long()
-            sim.setup_scenario(idx[s], k[s], att); sim.time[idx[s]] = sim.seconds
-    assign(torch.arange(B, device=dev))
-    obs = FT.build(sim)
+        W.scen[idx] = k; W.scenT[idx] = torch.where(k == 1, 8.0, torch.where(k == 2, 15.0, 0.0))
+        s_ = k > 0
+        if s_.any():
+            att = (torch.rand(int(s_.sum()), device=dev) < 0.5).long()
+            W.sim.setup_scenario(idx[s_], k[s_], att); W.sim.time[idx[s_]] = W.sim.seconds
+    for W in worlds:   # estado por mundo
+        Bw_, Pw_ = W.B, W.P
+        W.team1 = (W.sim.team == 1).view(1, Pw_).expand(Bw_, Pw_)
+        W.leagueEnv = torch.zeros(Bw_, dtype=torch.bool, device=dev); W.leagueIdx = torch.zeros(Bw_, dtype=torch.long, device=dev)
+        W.scriptEnv = torch.zeros(Bw_, dtype=torch.bool, device=dev)
+        W.prevScore = W.sim.score.clone()
+        W.passTick = torch.full((Bw_,), -1e9, device=dev); W.passer = torch.zeros(Bw_, dtype=torch.long, device=dev); W.tick = 0
+        W.prevDist = (W.sim.pos - W.sim.bpos.view(Bw_, 1, 2)).norm(dim=-1)
+        W.possStreak = torch.zeros(Bw_, device=dev)
+        W.lastKickTeam = torch.full((Bw_,), -1, dtype=torch.long, device=dev); W.lastKickTick = torch.full((Bw_,), -1e9, device=dev)
+        W.scen = torch.zeros(Bw_, dtype=torch.long, device=dev); W.scenT = torch.zeros(Bw_, device=dev)
+        assign_scen(W, torch.arange(Bw_, device=dev))
+        W.obs = FT.build(W.sim)
     t0 = time.time()
-    for it in range(it0 + 1, args.iters + 1):
-        # ---- rollout ----
-        R = args.rollout
-        shape = max(args.shape_floor, 1.0 - it / args.shape_decay) if args.shape_decay > 0 else 1.0
-        cur['scale'] = max(0.0, 1.0 - it / args.curriculum) if args.curriculum > 0 else 1.0
+    R = args.rollout
+    shape = 1.0
+
+    def rollout(W):
+        """um rollout de R decisões no mundo W; devolve as amostras treináveis achatadas"""
+        sim, ai, B, P, team1 = W.sim, W.ai, W.B, W.P, W.team1
+        prevScore, passTick, passer, tick = W.prevScore, W.passTick, W.passer, W.tick
+        prevDist, possStreak, lastKickTeam, lastKickTick = W.prevDist, W.possStreak, W.lastKickTeam, W.lastKickTick
+        scen, scenT, scriptEnv, leagueEnv, leagueIdx, obs = W.scen, W.scenT, W.scriptEnv, W.leagueEnv, W.leagueIdx, W.obs
+        assign = lambda idx: assign_scen(W, idx)
         obs_buf = torch.zeros(R, B, P, FT.SIZE, device=dev)
         act_buf = torch.zeros(R, B, P, len(pol.heads), dtype=torch.long, device=dev)
         guide_buf = torch.zeros(R, B, P, len(pol.heads), dtype=torch.long, device=dev)   # ação que o script escolheria (guia): macro, ou input discretizado
@@ -441,7 +453,7 @@ def main():
                     done = done | epEnd
                 for k in ('shot', 'control', 'pass'):
                     if k in ev: stat['shots' if k == 'shot' else ('control' if k == 'control' else 'passes')] += float(ev[k].sum())
-                stat['steps'] += 1
+                stat['steps'] += B / args.envs
                 rewT += rew; doneT |= done
             rew = rewT; done = doneT
             obs_buf[r] = obs; act_buf[r] = a; logp_buf[r] = logp; val_buf[r] = v; rew_buf[r] = rew; done_buf[r] = done.float()
@@ -457,11 +469,21 @@ def main():
                 last = delta + args.gamma * args.lam * nd * last
                 adv[r] = last
             ret = adv + val_buf
-        # amostras treináveis: exclui o time 1 das partidas com oponente da liga
+        W.prevScore, W.passTick, W.passer, W.tick = prevScore, passTick, passer, tick
+        W.prevDist, W.possStreak, W.lastKickTeam, W.lastKickTick = prevDist, possStreak, lastKickTeam, lastKickTick
+        W.scen, W.scenT, W.scriptEnv, W.leagueEnv, W.leagueIdx, W.obs = scen, scenT, scriptEnv, leagueEnv, leagueIdx, obs
+        # amostras treináveis: exclui o time 1 das partidas com oponente da liga ou script
         trainMask = ~((leagueEnv | scriptEnv).view(1, B, 1) & team1.view(1, B, P)).expand(R, B, P)
         idxs = trainMask.reshape(-1).nonzero().squeeze(1)
-        O = obs_buf.reshape(-1, FT.SIZE)[idxs]; A = act_buf.reshape(-1, len(pol.heads))[idxs]
-        LP = logp_buf.reshape(-1)[idxs]; AD = adv.reshape(-1)[idxs]; RT = ret.reshape(-1)[idxs]; GD = guide_buf.reshape(-1, len(pol.heads))[idxs]
+        return (obs_buf.reshape(-1, FT.SIZE)[idxs], act_buf.reshape(-1, len(pol.heads))[idxs], logp_buf.reshape(-1)[idxs],
+                adv.reshape(-1)[idxs], ret.reshape(-1)[idxs], guide_buf.reshape(-1, len(pol.heads))[idxs])
+
+    for it in range(it0 + 1, args.iters + 1):
+        shape = max(args.shape_floor, 1.0 - it / args.shape_decay) if args.shape_decay > 0 else 1.0
+        cur['scale'] = max(0.0, 1.0 - it / args.curriculum) if args.curriculum > 0 else 1.0
+        parts = [rollout(W) for W in worlds]
+        O = torch.cat([q[0] for q in parts]); A = torch.cat([q[1] for q in parts]); LP = torch.cat([q[2] for q in parts])
+        AD = torch.cat([q[3] for q in parts]); RT = torch.cat([q[4] for q in parts]); GD = torch.cat([q[5] for q in parts])
         beta = (max(args.guide_floor, args.guide * (1 - it / args.guide_decay)) if args.guide_decay > 0 else args.guide) if args.guide > 0 else 0.0
         AD = (AD - AD.mean()) / (AD.std() + 1e-8)
         N = O.shape[0]
@@ -485,11 +507,10 @@ def main():
                 stats_pi += float(pl.detach()); stats_v += float(vl.detach()); stats_ent += float(ent.mean().detach()); nb += 1
         # ---- log ----
         if it % 5 == 0 or it == it0 + 1:
-            m = max(1.0, stat['steps'] * B / (sim.seconds * 60.0))   # partidas-equivalentes jogadas nesta janela
-            gsteps = max(1, stat['steps']) * B
+            m = max(1.0, stat['steps'] * args.envs / (worlds[0].sim.seconds * 60.0))   # partidas-equivalentes jogadas nesta janela
             print(f"it {it} · {(time.time() - t0) / 60:.1f} min · partidas {int(stat['matches'])} · gols/partida {stat['goals'] / m:.2f} · "
                   f"chutes/partida {stat['shots'] / m:.1f} · domínios/partida {stat['control'] / m:.1f} · passes/partida {stat['passes'] / m:.1f} (completos {stat['passOk'] / m:.1f}) · "
-                  f"pi {stats_pi / nb:.3f} v {stats_v / nb:.3f} ent {stats_ent / nb:.2f} gn {stats_gn / nb:.3f} p(a0=1) {float(pol.dists(obs[:64].reshape(-1, FT.SIZE))[0].probs[:, 1].mean()):.3f} · liga {len(league)}" + (f' · guia {stats_gl / nb:.2f} (beta {beta:.2f})' if beta > 0 else ''), flush=True)
+                  f"pi {stats_pi / nb:.3f} v {stats_v / nb:.3f} ent {stats_ent / nb:.2f} gn {stats_gn / nb:.3f} p(a0=1) {float(pol.dists(worlds[0].obs[:64].reshape(-1, FT.SIZE))[0].probs[:, 1].mean()):.3f} · liga {len(league)}" + (f' · guia {stats_gl / nb:.2f} (beta {beta:.2f})' if beta > 0 else ''), flush=True)
             stat = dict(goals=0.0, matches=0.0, shots=0.0, control=0.0, passes=0.0, passOk=0.0, steps=0)
         if it % args.league_every == 0:
             snap = Policy(pol.kind, pol.hid, pol.depth).to(dev); snap.load_state_dict(pol.state_dict()); snap.eval()
@@ -497,7 +518,7 @@ def main():
             league.append(snap.state_dict()); oppPols.append(snap)
             if len(oppPols) > 6 + nFixed:   # os fixos nunca saem; o mais antigo dos demais sai
                 oppPols.pop(nFixed); league.pop(nFixed)
-                leagueIdx = torch.where(leagueIdx > nFixed, leagueIdx - 1, leagueIdx)
+                for W in worlds: W.leagueIdx = torch.where(W.leagueIdx > nFixed, W.leagueIdx - 1, W.leagueIdx)
         if it % args.export_every == 0:
             torch.save({'pol': pol.state_dict(), 'opt': opt.state_dict(), 'it': it, 'kind': pol.kind, 'hid': pol.hid, 'depth': pol.depth}, ckpt)
             export_js(pol, outjs, f'iteração {it}, {T}v{T}, {args.seconds}s/partida')
