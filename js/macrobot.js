@@ -23,6 +23,8 @@ const MacroBot = (() => {
     if (!policy) return AI.think(p, g, dt);
     const skip = policy.skip || 1;   // treinada com frame-skip: decide a cada `skip` ticks e mantém a macro
     return AI.think(p, g, dt, (pp, gg, cc) => {
+      // variante: a rede só decide com a bola (ou de primeira); sem a bola, a movimentação vem do script (papéis, Voronoi, estilo)
+      if (policy.offball === 'script' && !cc.hasBall && !cc.firstTouch) return AI.chooseMacro(pp, gg, cc);
       if (skip > 1 && pp._mac && pp._mac.n < skip) { pp._mac.n++; return AI.reflex(pp, gg, cc, pp._mac.macro); }
       const x = Features.build(pp, gg, new Float32Array(Features.SIZE));
       const y = NN.forward(policy.sizes, policy.w, x);
@@ -36,7 +38,7 @@ const MacroBot = (() => {
 
   function fromExport(obj) {
     if (!obj || !obj.w || obj.kind !== 'macro') return null;
-    return { sizes: obj.sizes, skip: obj.skip || 1, mask: !!obj.mask, w: Float32Array.from(obj.w) };
+    return { sizes: obj.sizes, skip: obj.skip || 1, mask: !!obj.mask, offball: obj.offball || (typeof process !== 'undefined' && process.env && process.env.OFFBALL) || null, w: Float32Array.from(obj.w) };
   }
 
   return { think, fromExport, SIZES_DEFAULT };

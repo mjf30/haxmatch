@@ -895,7 +895,14 @@ const AI = (() => {
       const mine = V.dist(p.pos, pred);
       const others = c.mates.filter((m) => !m.isKeeper);
       if (!p.isKeeper && others.every((m) => V.dist(m.pos, pred) > mine + 60) && mine < 350 && !['chase', 'gk_rush'].includes(macro)) return 'chase';
-    } else if (ball.owner.team !== p.team && !p.isKeeper) {   // último homem não sobe com o adversário atacando
+    }
+    // aglomeração: companheiro de linha (não portador) a menos de 120 px fazendo o mesmo -> o mais longe da bola abre no ponto mais livre
+    if (!p.isKeeper && !['chase', 'defend', 'gk_rush', 'guardgoal'].includes(macro)) {
+      const dB = V.dist(p.pos, ball.pos);
+      const twin = c.mates.find((m) => !m.isKeeper && m !== ball.owner && V.dist(m.pos, p.pos) < 120 && (m.ai.macro === macro || V.dist(m.pos, ball.pos) < dB));
+      if (twin && V.dist(twin.pos, ball.pos) <= dB) return 'openbest';
+    }
+    if (ball.owner && ball.owner.team !== p.team && !p.isKeeper) {   // último homem não sobe com o adversário atacando
       const field = c.mates.filter((m) => !m.isKeeper).concat([p]);
       const lastMan = field.slice().sort((a, b) => V.dist(a.pos, c.ownGoal) - V.dist(b.pos, c.ownGoal))[0] === p;
       if (lastMan && ['runspace', 'runbox', 'overlap', 'openfwd', 'openwide', 'openbest', 'openback', 'home'].includes(macro)) return 'cover';
