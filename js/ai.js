@@ -144,7 +144,7 @@ const AI = (() => {
       const tRest = Wq[k] === p.id ? T2[k] : T1[k];
       const tNew = Math.min(tRest, pc.REACT + dNew / CFG.SPRINT);
       const pAfter = 1 / (1 + Math.exp((tNew - TO[k]) / pc.TAU));
-      gain += (pAfter - pBefore) * valueAt({ x, y }, dir) * (pm ? (0.15 + 0.85 * pm[k]) : 1);
+      gain += (pAfter - pBefore) * valueAt({ x, y }, dir) * (pm ? pm[k] : 1);   // controle efetivo = chegar primeiro x passe chegar
     }
     return gain;
   }
