@@ -140,8 +140,8 @@ class Renderer {
       const p0 = pc.p0[k];   // território: tempo de chegada relativo à bola
       const v0 = valueAt(pc.cx[i], pc.cy[j], 1), v1 = valueAt(pc.cx[i], pc.cy[j], -1);
       total[0] += p0 * v0; total[1] += (1 - p0) * v1;
-      const blue = p0 >= 0.5, conf = Math.abs(p0 - 0.5) * 2, v = blue ? v0 : v1;
-      const col = blue ? '80,140,255' : '255,110,90';
+      const t0 = p0 >= 0.5, conf = Math.abs(p0 - 0.5) * 2, v = t0 ? v0 : v1;
+      const col = t0 ? '233,75,60' : '60,142,233';   // time 0 = vermelho, time 1 = azul (cores do jogo)
       let a;
       if (mode === 1) a = 0.06 + 0.55 * conf;
       else a = 0.04 + 0.65 * conf * (v / vmax);
@@ -165,7 +165,7 @@ class Renderer {
     }
     ctx.fillStyle = '#000'; ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'left';
     const label = mode === 1 ? 'TERRITÓRIO: quem chega antes, relativo ao tempo mínimo da bola (com velocidade)' : 'PERIGO: território x valor (chance de gol em 8 s) = potencial da jogada';
-    ctx.fillText(`${label}  ·  valor alcançável  azul ${(total[0] * 100).toFixed(1)}  vermelho ${(total[1] * 100).toFixed(1)}   (V alterna / desliga)`, -CFG.FIELD_W / 2 + 10, -CFG.FIELD_H / 2 - 14);
+    ctx.fillText(`${label}  ·  potencial  vermelho ${(total[0] * 100).toFixed(1)}  azul ${(total[1] * 100).toFixed(1)}   (V alterna / desliga)`, -CFG.FIELD_W / 2 + 10, -CFG.FIELD_H / 2 - 14);
   }
 
   // ---------- jogadores ----------
