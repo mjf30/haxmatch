@@ -31,10 +31,18 @@ const AI = (() => {
   // width: fator da largura (abertura/ultrapassagem); runners: corredores em profundidade (0..2);
   // compact: quanto o posicionamento sem bola acompanha a bola (compactação na defesa)
   const STYLES = {
-    balanced: { prog: 0.5, space: 0.3, margin: 0.2, share: 0.15, through: 0.15, long: -0.03, switch: 0, cross: 0.1, passback: -0.2, carry: 0.55, carrySpace: 380, hold: 0.1, width: 1.0, runners: 1, compact: 1.0 },
-    short: { prog: 0.5, space: 0.4, margin: 0.3, share: 0.15, through: 0.08, long: -0.2, switch: -0.05, cross: 0.05, passback: -0.18, carry: 0.45, carrySpace: 450, hold: 0.1, width: 0.85, runners: 1, compact: 1.2 },
-    long: { prog: 0.6, space: 0.25, margin: 0.15, share: 0.2, through: 0.2, long: 0.15, switch: 0.2, cross: 0.25, passback: -0.3, carry: 0.5, carrySpace: 350, hold: 0.05, width: 1.3, runners: 2, compact: 0.8 },
-    direct: { prog: 0.7, space: 0.2, margin: 0.15, share: 0.1, through: 0.3, long: 0.05, switch: 0, cross: 0.15, passback: -0.35, carry: 0.65, carrySpace: 330, hold: 0.05, width: 1.0, runners: 2, compact: 0.9 },
+    // decisão (leve): prog/space/margin/share pesos da nota de passe; through/long/switch/cross/passback bônus; carry/carrySpace/hold condução
+    // movimentação (o que define o estilo): supBack/supSide apoio atrás; fwdDist opção à frente; wideY/wideX pontas (largura e altura);
+    //   wideAlways dois pontas sempre; runners corredores; runTrigger quando correr ('final' terço final, 'space' com espaço, 'always');
+    //   gridRadius/gridProg ponto de abertura (raio e peso da progressão); counterpress pressionadores ao perder a bola alta; compact defesa
+    balanced: { prog: 0.5, space: 0.3, margin: 0.2, share: 0.15, through: 0.15, long: -0.03, switch: 0, cross: 0.1, passback: -0.2, carry: 0.55, carrySpace: 380, hold: 0.1,
+      supBack: 240, supSide: 120, fwdDist: 280, wideY: 380, wideX: 60, slots: ['support', 'wide', 'runner', 'wide'], runTrigger: 'space', gridRadius: 520, gridProg: 0.5, counterpress: 1, compact: 1.0, homeWidth: 1.0, homeAdvance: 0 },
+    short: { prog: 0.45, space: 0.35, margin: 0.25, share: 0.15, through: 0.1, long: -0.15, switch: -0.05, cross: 0.05, passback: -0.15, carry: 0.45, carrySpace: 450, hold: 0.1,
+      supBack: 160, supSide: 160, fwdDist: 200, wideY: 270, wideX: 100, slots: ['support', 'fwd', 'wide', 'runner'], runTrigger: 'final', gridRadius: 380, gridProg: 0.25, counterpress: 2, compact: 1.3, homeWidth: 0.75, homeAdvance: 0 },
+    long: { prog: 0.55, space: 0.3, margin: 0.2, share: 0.15, through: 0.15, long: 0.1, switch: 0.15, cross: 0.15, passback: -0.2, carry: 0.5, carrySpace: 380, hold: 0.1,
+      supBack: 300, supSide: 220, fwdDist: 360, wideY: 480, wideX: 200, slots: ['wide', 'wide', 'runner', 'support'], runTrigger: 'space', gridRadius: 650, gridProg: 0.6, counterpress: 1, compact: 0.9, homeWidth: 1.5, homeAdvance: 60 },
+    direct: { prog: 0.6, space: 0.3, margin: 0.2, share: 0.15, through: 0.25, long: 0.0, switch: 0, cross: 0.1, passback: -0.25, carry: 0.6, carrySpace: 340, hold: 0.08,
+      supBack: 180, supSide: 140, fwdDist: 320, wideY: 330, wideX: 150, slots: ['runner', 'support', 'runner', 'wide'], runTrigger: 'always', gridRadius: 600, gridProg: 0.7, counterpress: 1, compact: 1.0, homeWidth: 1.0, homeAdvance: 120 },
   };
   function styleOf(p, g) { return (g.styles && STYLES[g.styles[p.team]]) || STYLES.balanced; }
 
@@ -88,7 +96,7 @@ const AI = (() => {
 
   function homePos(p, g, c) {
     const S = styleOf(p, g);
-    const h = { x: p.home.x, y: p.home.y };
+    const h = { x: p.home.x + c.dir * (S.homeAdvance || 0), y: p.home.y * (S.homeWidth || 1) };   // forma base do estilo: largura e altura
     h.x += V.clamp(c.ball.pos.x * 0.45 * S.compact, -c.W2 * 0.4, c.W2 * 0.4);
     h.y += c.ball.pos.y * 0.35 * S.compact;
     if (c.ball.owner && c.ball.owner.team !== p.team) h.x -= c.dir * 150 * S.compact;
@@ -115,7 +123,7 @@ const AI = (() => {
       let pt = g.clampField({ x: nominal.x + i * radius / 2, y: nominal.y + j * radius / 2 }, 45);
       // não entra na própria área (deixa o goleiro em paz)
       if (c.teamHasKeeper && g.inBoxPt(pt, p.team)) continue;
-      const s = openness(pt, c, p) - 0.15 * V.dist(pt, nominal);
+      const s = openness(pt, c, p) - 0.6 * V.dist(pt, nominal);   // o alvo nominal (papel do estilo) pesa; a abertura só ajusta
       if (s > bs) { bs = s; best = pt; }
     }
     return best || g.clampField(nominal, 45);
@@ -130,17 +138,16 @@ const AI = (() => {
   function supportNominal(kind, p, g, c) {
     const anchor = c.ball.owner ? c.ball.owner.pos : c.ball.pos;
     const dir = c.dir;
-    if (kind === 'openfwd') return { x: anchor.x + dir * 280, y: anchor.y * 0.5 + (p.pos.y >= anchor.y ? 1 : -1) * 90 };
-    if (kind === 'openwide') {   // largura: fora do bloco adversário quando ele está desse lado
+    const S = styleOf(p, g);
+    if (kind === 'openfwd') return { x: anchor.x + dir * S.fwdDist, y: anchor.y * 0.5 + (p.pos.y >= anchor.y ? 1 : -1) * 90 };
+    if (kind === 'openwide') {   // ponta: largura absoluta do estilo (ou fora do bloco adversário), à altura wideX do portador
       const side = p.pos.y >= anchor.y ? 1 : -1;
-      const W = styleOf(p, g).width;
-      const y = Math.max(anchor.y * side + 380 * W, blockEdge(c, side) + 120 * W) * side;
-      return { x: anchor.x + dir * 60, y: V.clamp(y, -CFG.FIELD_H / 2 + 80, CFG.FIELD_H / 2 - 80) };
+      const y = Math.max(S.wideY, Math.abs(anchor.y) * 0.3 + S.wideY * 0.7, blockEdge(c, side) + 100) * side;
+      return g.clampField({ x: anchor.x + dir * S.wideX, y: V.clamp(y, -CFG.FIELD_H / 2 + 60, CFG.FIELD_H / 2 - 60) }, 60);
     }
     if (kind === 'overlap') {   // ultrapassagem por fora: à frente do portador, por fora do bloco
       const side = p.pos.y >= anchor.y ? 1 : -1;
-      const W = styleOf(p, g).width;
-      const y = Math.max(anchor.y * side + 340 * W, blockEdge(c, side) + 120 * W) * side;
+      const y = Math.max(anchor.y * side + 300, blockEdge(c, side) + 100) * side;
       return { x: anchor.x + dir * 320, y: V.clamp(y, -CFG.FIELD_H / 2 + 70, CFG.FIELD_H / 2 - 70) };
     }
     if (kind === 'runspace') {  // atacar o espaço: além da última linha de defensores, num ponto livre
@@ -154,9 +161,9 @@ const AI = (() => {
       const W2 = CFG.FIELD_W / 2;
       return { x: dir * (W2 - CFG.BOX_W * 0.55), y: V.clamp(p.pos.y * 0.6 + (p.pos.y >= 0 ? 1 : -1) * 60, -CFG.BOX_H / 2 * 0.7, CFG.BOX_H / 2 * 0.7) };
     }
-    // openback: apoio atrás; no nosso campo fica mais ao lado do que atrás (o time precisa subir)
-    const back = anchor.x * dir < 0 ? 120 : 240;
-    return { x: anchor.x - dir * back, y: anchor.y * 0.4 + (p.pos.y >= anchor.y ? 1 : -1) * (anchor.x * dir < 0 ? 200 : 120) };
+    // openback: apoio atrás (distâncias do estilo); no nosso campo fica mais ao lado do que atrás (o time precisa subir)
+    const own = anchor.x * dir < 0;
+    return { x: anchor.x - dir * (own ? S.supBack * 0.5 : S.supBack), y: anchor.y * 0.4 + (p.pos.y >= anchor.y ? 1 : -1) * (own ? S.supSide * 1.6 : S.supSide) };
   }
 
   // passe em profundidade: companheiro correndo para a frente; mira no ponto futuro dele
@@ -232,7 +239,7 @@ const AI = (() => {
       if (c.teamHasKeeper && g.inBoxPt(pt, p.team)) continue;
       const da = V.dist(pt, anchor);
       if (da < 120 || da > 800) continue;
-      const s = openness(pt, c, p) + 0.5 * (pt.x - anchor.x) * c.dir - 0.15 * dp;   // prefere pontos à frente da bola
+      const s = openness(pt, c, p) + styleOf(p, g).gridProg * (pt.x - anchor.x) * c.dir - 0.15 * dp;   // progressão pesa conforme o estilo
       if (s > bs) { bs = s; best = pt; }
     }
     return best || homePos(p, g, c);
@@ -407,31 +414,44 @@ const AI = (() => {
       const carrier = ball.owner;
       const dir = c.dir;
       const field = c.mates.filter((m) => !m.isKeeper && m !== carrier).concat([p]);
+      const S = styleOf(p, g);
       const roles = new Map();
       const free = () => field.filter((m) => !roles.has(m));
-      const byDist = (list) => list.slice().sort((a, b) => V.dist(a.pos, carrier.pos) - V.dist(b.pos, carrier.pos));
       const attacking = carrier.pos.x * dir > c.W2 * 0.3;   // bola no terço de ataque
-      // apoio: mais perto do portador entre os que não estão claramente à frente
-      const behind = byDist(field.filter((m) => (m.pos.x - carrier.pos.x) * dir <= 40));
-      if (behind.length) roles.set(behind[0], attacking ? 'overlap' : 'openback');
-      // largura: para cada lado sem ninguém aberto, o jogador livre mais próximo desse lado
-      for (const side of [1, -1]) {
-        const edge = blockEdge(c, side);
-        const open = field.some((m) => roles.get(m) !== 'openback' && ((m.pos.y - carrier.pos.y) * side > 250 || m.pos.y * side > edge + 40));
-        if (open) continue;
-        const cand = free().filter((m) => (m.pos.y - carrier.pos.y) * side >= 0).sort((a, b) => (b.pos.y - a.pos.y) * side);
-        if (cand.length) roles.set(cand[0], 'openwide');
-      }
-      // profundidade: o mais avançado dos livres ataca a área (terço final) ou o espaço atrás da linha;
-      // com 3+ livres, um segundo corredor (terceiro homem) ataca o espaço também
-      const adv = free().sort((a, b) => (b.pos.x - a.pos.x) * dir);
       const defenders = c.opps.filter((o) => !o.isKeeper);
       const lastX = defenders.length ? Math.max(...defenders.map((o) => o.pos.x * dir)) : c.W2;
-      const R = styleOf(p, g).runners;
-      // portador aberto na lateral do campo de ataque: atacar a área para o cruzamento
+      // portador aberto na lateral do campo de ataque: o corredor ataca a área para o cruzamento
       const wideCarrier = Math.abs(carrier.pos.y) >= CFG.FIELD_H * 0.18 && carrier.pos.x * dir >= c.W2 * 0.15;
-      if (adv.length) roles.set(adv[0], (attacking || wideCarrier) ? 'runbox' : (R >= 1 && lastX - carrier.pos.x * dir > 100 ? 'runspace' : 'openfwd'));
-      if (adv.length >= (R >= 2 ? 2 : 3) && R >= 1) roles.set(adv[1], (attacking || wideCarrier) ? 'runbox' : 'runspace');
+      const gap = lastX - carrier.pos.x * dir;
+      const canRun = S.runTrigger === 'always' ? gap > 60 : S.runTrigger === 'space' ? gap > 100 : false;   // 'final': só na área
+      const runnerRole = (attacking || wideCarrier) ? 'runbox' : (canRun ? 'runspace' : 'openfwd');
+      const wideTaken = new Set();
+      // vagas na ordem do estilo; cada vaga escolhe o jogador livre mais adequado
+      for (const slot of S.slots) {
+        const fr = free();
+        if (!fr.length) break;
+        if (slot === 'support') {   // apoio: o mais perto do portador entre os que não estão à frente (senão o mais perto)
+          const behind = fr.filter((m) => (m.pos.x - carrier.pos.x) * dir <= 40);
+          const list = (behind.length ? behind : fr).slice().sort((a, b) => V.dist(a.pos, carrier.pos) - V.dist(b.pos, carrier.pos));
+          roles.set(list[0], attacking ? 'overlap' : 'openback');
+        } else if (slot === 'wide') {   // ponta: lado ainda sem ponta; o jogador livre mais lateral desse lado
+          const sides = [1, -1].filter((sd) => !wideTaken.has(sd)).sort((a, b) => {
+            const oa = field.some((m) => m.pos.y * a > S.wideY - 80), ob = field.some((m) => m.pos.y * b > S.wideY - 80);
+            return (oa ? 1 : 0) - (ob ? 1 : 0);   // primeiro o lado sem ninguém aberto
+          });
+          if (!sides.length) continue;
+          const side = sides[0];
+          const cand = fr.slice().sort((a, b) => (b.pos.y - a.pos.y) * side);
+          roles.set(cand[0], 'openwide'); wideTaken.add(side);
+        } else if (slot === 'fwd') {   // opção curta à frente: o mais perto do portador entre os que estão à frente (senão o mais avançado)
+          const ahead = fr.filter((m) => (m.pos.x - carrier.pos.x) * dir > 40);
+          const list = (ahead.length ? ahead : fr).slice().sort((a, b) => V.dist(a.pos, carrier.pos) - V.dist(b.pos, carrier.pos));
+          roles.set(list[0], 'openfwd');
+        } else if (slot === 'runner') {   // profundidade: o mais avançado
+          const adv = fr.slice().sort((a, b) => (b.pos.x - a.pos.x) * dir);
+          roles.set(adv[0], runnerRole);
+        }
+      }
       let role = roles.get(p) || 'openbest';
       // aglomeração: companheiro (que não é o portador) a menos de 110 px e não sou o apoio -> abrir no ponto mais livre
       if (role !== 'openback' && c.mates.some((m) => m !== carrier && V.dist(m.pos, p.pos) < 110)) role = 'openbest';
@@ -443,6 +463,7 @@ const AI = (() => {
       const chasers = c.mates.filter((m) => !m.isKeeper).concat([p]);
       const order = chasers.slice().sort((a, b) => V.dist(a.pos, ball.owner.pos) - V.dist(b.pos, ball.owner.pos)).indexOf(p);
       if (order === 0) return 'defend';
+      if (order === 1 && styleOf(p, g).counterpress >= 2 && ball.owner.pos.x * c.dir > 0) return 'defend';   // contra-pressão: perdeu alta, dois vão
       const lastMan = chasers.slice().sort((a, b) => V.dist(a.pos, c.ownGoal) - V.dist(b.pos, c.ownGoal))[0] === p;
       if (order === 1) {
         const fo = freestOpp(p, c);
@@ -714,7 +735,7 @@ const AI = (() => {
     // abrir espaço para receber: ponto livre perto de um alvo nominal relativo ao portador/bola
     // abrir no melhor ponto da grade (Voronoi): livre, com linha de passe, à frente
     if (macro === 'openbest') {
-      const target = bestGridPoint(p, g, c, 520);
+      const target = bestGridPoint(p, g, c, styleOf(p, g).gridRadius);
       moveTo(target, V.dist(p.pos, target) > 220);
       inp.aim = ball.pos;
       return inp;
@@ -739,8 +760,8 @@ const AI = (() => {
     }
 
     if (['openfwd', 'openwide', 'openback', 'overlap', 'runbox', 'runspace'].includes(macro)) {
-      const target = bestOpenPoint(supportNominal(macro, p, g, c), c, p, g, macro === 'runbox' ? 110 : 140);
-      moveTo(target, (macro === 'overlap' || macro === 'runspace') ? V.dist(p.pos, target) > 120 : V.dist(p.pos, target) > 260);
+      const target = bestOpenPoint(supportNominal(macro, p, g, c), c, p, g, (macro === 'runbox' || macro === 'openwide') ? 100 : 140);
+      moveTo(target, (macro === 'overlap' || macro === 'runspace') ? V.dist(p.pos, target) > 120 : (macro === 'openwide' ? V.dist(p.pos, target) > 150 : V.dist(p.pos, target) > 260));
       inp.aim = ball.pos;                       // de frente para a bola, pronto para o toque de primeira
       return inp;
     }
