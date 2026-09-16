@@ -35,7 +35,8 @@ function collect(minutes, actor) {
   let ticks = 0;
   while (ticks < ticksTarget) {
     const teamSize = 3 + Math.floor(rng() * 3);
-    const g = new Game({ teamSize, seed: seed++ });
+    const st = process.env.STYLE || 'balanced';   // estilo do script clonado (os dois times)
+    const g = new Game({ teamSize, seed: seed++, styles: [st, st] });
     g.time = 120;
     const useNN = g.players.map(() => actor && rng() >= actor.beta);
     for (let i = 0; i < 120 / CFG.DT && ticks < ticksTarget; i++) {

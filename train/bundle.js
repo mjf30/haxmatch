@@ -49,7 +49,8 @@ function playMatch(sim, policy, opp, opts) {
   const nnTeam = opts.nnTeam || 0;
   const rng = mulberry(opts.seed || 1);
   const teamSize = opts.teamSize || (3 + Math.floor(rng() * 3));   // 0 = sorteia 3v3 / 4v4 / 5v5
-  const g = new Game({ teamSize, seed: opts.seed || 1 });
+  const st = process.env.STYLE || 'balanced';   // estilo dos bots script (os dois times)
+  const g = new Game({ teamSize, seed: opts.seed || 1, styles: opts.styles || [st, st] });
   g.time = seconds;   // partida curta
   const scenario = opts.scenario || 'match';
   setupScenario(sim, g, nnTeam, scenario, rng);
@@ -123,6 +124,11 @@ function fitnessOf(m) {
   if (m.scenario === 'build') {
     // construção: levar a bola ao ataque e finalizar; enrolar é penalizado
     return 10 * m.gf - 5 * m.ga + 1.5 * m.onTarget + 0.3 * m.shots + 1.5 * (m.ballX / t) - 0.004 * m.stall;
+  }
+  // FITNESS=result: só resultado e estilo de passes (sem chutes, progressão e posse, que causaram deriva para bola longa)
+  if (process.env.FITNESS === 'result') {
+    return 10 * (m.gf - m.ga) + 1.0 * Math.min(30, m.passOk) + 2.0 * Math.min(8, m.longOk)
+      + 1.5 * (m.spread / Math.max(1, m.attackTicks || 0)) - 0.006 * m.crowd - 0.004 * m.stall;
   }
   // "ganhar jogando bem": gol pesa mais, mas rodar a bola, lançar e inverter também contam
   return 10 * (m.gf - m.ga)
