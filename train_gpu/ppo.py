@@ -525,9 +525,12 @@ def main():
             if len(oppPols) > 6 + nFixed:   # os fixos nunca saem; o mais antigo dos demais sai
                 oppPols.pop(nFixed); league.pop(nFixed)
                 for W in worlds: W.leagueIdx = torch.where(W.leagueIdx > nFixed, W.leagueIdx - 1, W.leagueIdx)
-        if it % args.export_every == 0:
+        stopFlag = ckpt + '.stop'   # encerramento suave: crie este arquivo e o treino salva e sai (sem matar o processo)
+        if it % args.export_every == 0 or os.path.exists(stopFlag):
             torch.save({'pol': pol.state_dict(), 'opt': opt.state_dict(), 'it': it, 'kind': pol.kind, 'hid': pol.hid, 'depth': pol.depth}, ckpt)
             export_js(pol, outjs, f'iteração {it}, {T}v{T}, {args.seconds}s/partida')
+        if os.path.exists(stopFlag):
+            os.remove(stopFlag); print('parada suave solicitada: checkpoint salvo na iteração', it, flush=True); return
     torch.save({'pol': pol.state_dict(), 'opt': opt.state_dict(), 'it': args.iters, 'kind': pol.kind, 'hid': pol.hid, 'depth': pol.depth}, ckpt)
     export_js(pol, outjs, f'iteração {args.iters}')
 
