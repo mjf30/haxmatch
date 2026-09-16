@@ -177,6 +177,7 @@ def main():
     ap.add_argument('--guide', type=float, default=0.0)         # híbrido guiado: peso da entropia cruzada com a macro do script (decai até --guide_floor em --guide_decay iterações)
     ap.add_argument('--guide_decay', type=int, default=0)
     ap.add_argument('--guide_floor', type=float, default=0.0)
+    ap.add_argument('--fixed_share', type=float, default=0.5)   # fração das partidas de liga que usam os adversários fixos (o resto: snapshots)
     ap.add_argument('--league_init', type=str, default=None)   # checkpoints congelados que ficam na liga o treino inteiro (benchmark), separados por vírgula
     ap.add_argument('--approach', type=float, default=0.02)   # shaping denso: aproximar-se da bola solta (currículo inicial)
     ap.add_argument('--sanity', action='store_true')
@@ -439,7 +440,11 @@ def main():
                     scriptEnv[idx] = rr < args.script_frac
                     if league:
                         leagueEnv[idx] = (rr >= args.script_frac) & (rr < args.script_frac + args.league_frac)
-                        leagueIdx[idx] = torch.randint(0, len(league), (idx.numel(),), device=dev)
+                        nl = len(league); nf = nFixed
+                        useFixed = (torch.rand(idx.numel(), device=dev) < args.fixed_share) & (nf > 0) & (nl > nf)
+                        pickF = torch.randint(0, max(1, nf), (idx.numel(),), device=dev)
+                        pickS = nf + torch.randint(0, max(1, nl - nf), (idx.numel(),), device=dev) if nl > nf else pickF
+                        leagueIdx[idx] = torch.where(useFixed, pickF, torch.where(torch.tensor(nl > nf, device=dev), pickS, pickF))
                 # cenários: episódio acaba por tempo ou gol -> recomeça (novo sorteio de cenário); conta como fim de episódio
                 scenT = torch.where(scen > 0, scenT - DT, scenT)
                 epEnd = (scen > 0) & ((scenT <= 0) | (dsc.sum(-1) > 0))
